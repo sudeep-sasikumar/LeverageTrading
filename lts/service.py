@@ -169,9 +169,16 @@ class Service:
             await asyncio.sleep(max(0.5, nxt - now))
             try:
                 bar_ts = await self.collector.collect()
-                await scan_cycle(self.cfg, self.db, self.collector, self.engine, self.bundle, bar_ts,
-                                 cache=self.cache)
+                t_scan = time.time()
+                cands = await scan_cycle(self.cfg, self.db, self.collector, self.engine, self.bundle, bar_ts,
+                                         cache=self.cache)
                 self.last_bar = bar_ts
+                # read by the dashboard to show that the scanner is alive
+                self.db.set("heartbeat", {
+                    "ts": int(time.time() * 1000), "bar_ts": bar_ts, "candidates": len(cands),
+                    "signals": sum(1 for c in cands if c.get("decision") == "sent"),
+                    "errors": self.collector.last_errors, "collect_s": round(self.collector.last_seconds, 1),
+                    "scan_s": round(time.time() - t_scan, 1), "telegram": self.tg.enabled})
                 if self.collector.failures >= 3 and not self.alerted:
                     self.alerted = True
                     await self.tg.send("⚠️ Data collection is failing for many symbols. Signals may be delayed.")
@@ -253,6 +260,7 @@ class Service:
 
     async def run(self) -> None:
         await refresh_universe(self.cfg, self.db, self.binance, self.weex)
+        self.db.set("phase", "running")
         if self.bundle and self.bundle.get("status") == "champion":
             mode = f"validated model {self.bundle['version']} - live signals"
         elif self.bundle:

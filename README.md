@@ -58,6 +58,7 @@ Same pattern as CryptoLaunchScanner. Pick a VPS region Binance serves (not the U
    |---|---|---|
    | `TELEGRAM_BOT_TOKEN` | yes | from @BotFather. For `/status` etc. use a bot no other app polls |
    | `TELEGRAM_CHAT_ID` | yes | your chat id; a group id starts with `-100` |
+   | `DASHBOARD_PASSWORD` | for the dashboard | a long password of your choice; without it the dashboard stays off |
    | `ACCOUNT_SIZE_USDT` | optional | quotes each signal's margin in USDT |
    | `RISK_PER_TRADE` | optional | account fraction lost at a stop (default `0.01`) |
    | `MAX_SIGNALS_PER_DAY` | optional | default `3` |
@@ -68,7 +69,13 @@ candidates and trains the first model (about 40 minutes), then sends "LTS starte
 Telegram. Data (database, models, logs) lives in the `lts_data` volume and survives
 redeploys; a redeploy pulls the newest image and resumes within a minute.
 
-No ports are opened: the bot only makes outbound calls.
+5. Dashboard: `https://srv1479428.hstgr.cloud/lts/` - it shares the hostname and certificate
+   that Ignition & Coil and Launch Radar already use (set `DOMAIN` to change the hostname). It is
+   read-only: signals with their results, every scanned candidate and why it was skipped, the
+   model's validation numbers, and a health panel. It is up during the first-start setup too.
+
+No host ports are opened; the dashboard is reached only through Traefik. On this PC:
+`python -m lts dashboard`, then http://127.0.0.1:8020 (no login on localhost).
 
 ## Telegram
 

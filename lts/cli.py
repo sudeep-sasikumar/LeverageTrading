@@ -46,6 +46,7 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("run", help="run the live service (collector, scanner, tracker, learner, Telegram)")
     sub.add_parser("start", help="container entry point: first-time backfill + training if needed, then run")
+    sub.add_parser("dashboard", help="serve only the read-only dashboard (http://127.0.0.1:8020 by default)")
     p = sub.add_parser("scan", help="one collection + scan cycle, print candidates, send nothing")
     p.add_argument("--no-collect", action="store_true")
     sub.add_parser("status", help="print database / model / signal status")
@@ -71,8 +72,13 @@ def main(argv: list[str] | None = None) -> None:
             from .learner import train_and_maybe_promote
             print(train_and_maybe_promote(cfg, db, force=args.force)["summary"])
         elif args.cmd == "run":
+            from .dashboard import start_in_thread
             from .service import run_service
+            start_in_thread(cfg)
             asyncio.run(run_service(cfg, db))
+        elif args.cmd == "dashboard":
+            from .dashboard import serve
+            asyncio.run(serve(cfg))
         elif args.cmd == "start":
             import os
             from .backfill import backfill
@@ -81,16 +87,21 @@ def main(argv: list[str] | None = None) -> None:
             from .service import run_service
             log = logging.getLogger("lts.start")
             log.info("LTS version %s", os.environ.get("APP_VERSION", "dev"))
+            from .dashboard import start_in_thread
+            start_in_thread(cfg)                      # visible during the first-start setup too
             # each step is skipped once done, so a restart mid-bootstrap resumes where it stopped
             if not db.get("bootstrap_backfill_done"):
                 days = float(os.environ.get("BACKFILL_DAYS") or 30)
+                db.set("phase", "backfill")
                 log.info("first start: downloading %.0f days of history (about 30 minutes)", days)
                 asyncio.run(backfill(cfg, db, days=days))
                 db.set("bootstrap_backfill_done", True)
             if not db.get("bootstrap_replay_done"):
+                db.set("phase", "replay")
                 replay(cfg, db)
                 db.set("bootstrap_replay_done", True)
             if not db.query("SELECT 1 FROM models LIMIT 1"):
+                db.set("phase", "train")
                 log.info("\n%s", train_and_maybe_promote(cfg, db)["summary"])
             asyncio.run(run_service(cfg, db))
         elif args.cmd == "scan":

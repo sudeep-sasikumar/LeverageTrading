@@ -9,7 +9,9 @@ ENV APP_VERSION=${APP_VERSION} \
     TZ=UTC \
     LTS_DB_PATH=/app/data/lts.sqlite \
     LTS_MODEL_DIR=/app/data/models \
-    LTS_LOG_DIR=/app/data/logs
+    LTS_LOG_DIR=/app/data/logs \
+    DASHBOARD_BIND=0.0.0.0 \
+    DASHBOARD_PORT=8020
 
 WORKDIR /app
 COPY requirements.txt .
@@ -19,5 +21,6 @@ COPY . .
 RUN useradd --create-home --uid 1000 lts && mkdir -p /app/data && chown -R lts /app
 USER lts
 
+EXPOSE 8020
 # "start" = on an empty volume: backfill 30 days, rebuild candidates, train; then run the service
 CMD ["python", "-m", "lts", "start"]

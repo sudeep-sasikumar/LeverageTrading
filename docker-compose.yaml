@@ -4,7 +4,9 @@
 # Hostinger downloads ONLY this file, so nothing here refers to other files. The image is built
 # by GitHub Actions (.github/workflows/docker-image.yml) on every push; a redeploy pulls the latest.
 #
-# No ports are opened: the bot only makes outbound calls (Binance, Weex, Telegram).
+# HTTPS dashboard: the VPS already runs Traefik (set up for Ignition & Coil). The dashboard is served
+# under /lts/ on the same hostname, so it reuses that hostname's certificate: no new domain needed.
+# No host ports are opened; the dashboard is reached only through Traefik and is read-only.
 # First start on an empty volume downloads 30 days of history and trains the first model
 # (about 40 minutes); Telegram gets a message when scanning begins.
 # The VPS must be in a region Binance serves (not the US).
@@ -12,6 +14,8 @@
 # Environment variables to enter in Docker Manager:
 #   TELEGRAM_BOT_TOKEN   from @BotFather. Use a bot no other app polls if you want /status etc. to work.
 #   TELEGRAM_CHAT_ID     your chat id (a group id starts with -100)
+#   DASHBOARD_PASSWORD   required for the dashboard - pick a long one (without it the dashboard stays off)
+#   DOMAIN               optional - defaults to this VPS's Hostinger hostname
 #   ACCOUNT_SIZE_USDT    optional - quotes each signal's margin in USDT as well as in % of account
 #   RISK_PER_TRADE       optional - fraction of the account lost when a stop is hit (default 0.01)
 #   MAX_SIGNALS_PER_DAY  optional - default 3
@@ -28,8 +32,25 @@ services:
       RISK_PER_TRADE: ${RISK_PER_TRADE:-}
       MAX_SIGNALS_PER_DAY: ${MAX_SIGNALS_PER_DAY:-}
       BACKFILL_DAYS: ${BACKFILL_DAYS:-}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}   # required: without it the dashboard stays off
+      DASHBOARD_COOKIE_SECURE: "true"               # the login cookie is only sent over HTTPS
     volumes:
       - lts_data:/app/data                # database, models, logs - survives redeploys
+    expose:
+      - "8020"                            # reached only through Traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.lts.rule=Host(`${DOMAIN:-srv1479428.hstgr.cloud}`) && PathPrefix(`/lts`)
+      - traefik.http.routers.lts.entrypoints=websecure
+      - traefik.http.routers.lts.tls=true
+      - traefik.http.routers.lts.tls.certresolver=letsencrypt
+      - traefik.http.routers.lts.middlewares=lts-slash,lts-strip
+      # /lts -> /lts/ (the page loads its data with relative links), then strip /lts for the app
+      - traefik.http.middlewares.lts-slash.redirectregex.regex=^(https?://[^/]+/lts)$$
+      - traefik.http.middlewares.lts-slash.redirectregex.replacement=$${1}/
+      - traefik.http.middlewares.lts-slash.redirectregex.permanent=true
+      - traefik.http.middlewares.lts-strip.stripprefix.prefixes=/lts
+      - traefik.http.services.lts.loadbalancer.server.port=8020
     logging:
       driver: json-file
       options: {max-size: "10m", max-file: "3"}

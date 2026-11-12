@@ -24,6 +24,8 @@ class Collector:
         self.cfg, self.db, self.binance, self.weex = cfg, db, binance, weex
         self.weex_tickers: dict[str, dict] = {}
         self.failures = 0
+        self.last_errors = 0
+        self.last_seconds = 0.0
 
     def _symbols(self) -> list[dict]:
         rows = [dict(r) for r in self.db.query("SELECT symbol, src, on_weex, on_binance FROM symbols WHERE active=1")]
@@ -92,6 +94,7 @@ class Collector:
         t0 = time.time()
         await asyncio.gather(premium(), weex_tickers(), *(one(r) for r in syms))
         self.failures = self.failures + 1 if errors > len(syms) * 0.2 else 0
+        self.last_errors, self.last_seconds = errors, time.time() - t0
         log.info("collected bar %d: %d symbols, %d errors, %.1fs", bar_ts, len(syms), errors, time.time() - t0)
         return bar_ts
 

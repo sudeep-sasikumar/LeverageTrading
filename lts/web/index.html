@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>LTS Dashboard</title>
+<style>
+:root{
+  --bg:#f5f6f8;--panel:#fff;--line:#e3e6eb;--text:#161a22;--muted:#667085;
+  --good:#0b7a53;--bad:#c2362b;--warn:#a15c00;--accent:#2f5bd8;
+  --good-bg:#e4f5ee;--bad-bg:#fbe9e7;--warn-bg:#fdf1dc;--accent-bg:#e8eefc;--chip:#eef0f4;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0f1218;--panel:#171b24;--line:#272d3a;--text:#e7eaf0;--muted:#98a2b3;
+  --good:#3ecf9a;--bad:#ff7b6e;--warn:#f2b45a;--accent:#8aa8ff;
+  --good-bg:#10362a;--bad-bg:#3d1c19;--warn-bg:#3a2b10;--accent-bg:#1b2747;--chip:#232938;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1200px;margin:0 auto;padding:16px}
+h1{font-size:18px;margin:0}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:22px 0 8px;font-weight:600}
+.top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.muted{color:var(--muted)}
+.chip{display:inline-block;padding:2px 9px;border-radius:999px;background:var(--chip);font-size:12px;font-weight:600;white-space:nowrap}
+.chip.good{background:var(--good-bg);color:var(--good)}.chip.bad{background:var(--bad-bg);color:var(--bad)}
+.chip.warn{background:var(--warn-bg);color:var(--warn)}.chip.accent{background:var(--accent-bg);color:var(--accent)}
+.banner{margin-top:12px;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--panel)}
+.banner.warn{background:var(--warn-bg);border-color:transparent}.banner.bad{background:var(--bad-bg);border-color:transparent}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.tile .k{font-size:12px;color:var(--muted)}.tile .v{font-size:22px;font-weight:650;margin-top:2px}
+.tile .s{font-size:12px;color:var(--muted);margin-top:2px}
+.pos{color:var(--good)}.neg{color:var(--bad)}
+.tabs{display:flex;gap:4px;margin-top:18px;border-bottom:1px solid var(--line);overflow-x:auto}
+.tabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);padding:9px 12px;font:inherit;font-weight:600;cursor:pointer;white-space:nowrap}
+.tabs button.on{color:var(--text);border-color:var(--accent)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;background:var(--panel);position:sticky;top:0}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.empty{padding:18px;color:var(--muted)}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:0}
+.kv div{padding:9px 14px;border-bottom:1px solid var(--line)}.kv b{display:block;font-size:12px;color:var(--muted);font-weight:500}
+#login{max-width:340px;margin:14vh auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px}
+input,button.primary{font:inherit;padding:9px 11px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text);width:100%}
+button.primary{background:var(--accent);color:#fff;border-color:transparent;font-weight:600;cursor:pointer;margin-top:10px}
+@media (prefers-color-scheme:dark){button.primary{color:#0f1218}}
+.err{color:var(--bad);min-height:1.4em;margin-top:8px;font-size:13px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div id="login" hidden>
+  <h1>LTS Dashboard</h1>
+  <p class="muted">Enter the dashboard password.</p>
+  <form id="loginForm">
+    <input id="pw" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password">
+    <button class="primary" type="submit">Sign in</button>
+    <div class="err" id="loginErr"></div>
+  </form>
+</div>
+
+<main id="app" hidden>
+  <div class="top">
+    <div><h1>Leverage Trading Signals</h1><div class="muted" id="sub"></div></div>
+    <div id="chips"></div>
+  </div>
+  <div id="banners"></div>
+
+  <h2>Results</h2>
+  <div class="tiles" id="tiles"></div>
+
+  <div class="tabs" role="tablist">
+    <button data-tab="signals" class="on">Signals</button>
+    <button data-tab="candidates">Candidates scanned</button>
+    <button data-tab="learning">Model &amp; learning</button>
+    <button data-tab="system">System</button>
+  </div>
+
+  <section id="tab-signals">
+    <h2>Open signals</h2><div class="panel scroll" id="open"></div>
+    <h2>Signal history</h2><div class="panel scroll" id="history"></div>
+  </section>
+  <section id="tab-candidates" hidden>
+    <h2>Why candidates were skipped (last 24h)</h2><div id="skips"></div>
+    <h2>Latest candidates</h2><div class="panel scroll" id="cands"></div>
+  </section>
+  <section id="tab-learning" hidden>
+    <h2>Model in use</h2><div class="panel kv" id="model"></div>
+    <h2>Training history</h2><div class="panel scroll" id="models"></div>
+  </section>
+  <section id="tab-system" hidden>
+    <h2>Health</h2><div class="panel kv" id="system"></div>
+  </section>
+  <p class="muted" style="margin-top:22px">Read-only. Refreshes every 30 seconds. Times are in your browser's time zone. R = stop distance (+2R is a full target, −1R a full stop before fees). Research software, not financial advice.</p>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const dt = ts => ts ? new Date(ts).toLocaleString([], {month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"}) : "–";
+const ago = ts => { if (!ts) return "never"; const m = Math.round((Date.now() - ts) / 60000);
+  return m < 1 ? "just now" : m < 90 ? m + " min ago" : m < 2880 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago"; };
+const num = (x, d = 2) => x == null ? "–" : Number(x).toFixed(d);
+const pct = (x, d = 1) => x == null ? "–" : (x * 100).toFixed(d) + "%";
+const signed = (x, d = 2, unit = "R") => x == null ? "–" : `<span class="${x > 0 ? "pos" : x < 0 ? "neg" : ""}">${x > 0 ? "+" : ""}${Number(x).toFixed(d)}${unit}</span>`;
+const price = x => x == null ? "–" : Number(x).toPrecision(6).replace(/\.?0+$/, "");
+const side = s => s > 0 ? '<span class="chip good">LONG</span>' : '<span class="chip bad">SHORT</span>';
+const grade = g => g === "P" ? '<span class="chip warn">PAPER</span>' : `<span class="chip accent">Grade ${esc(g)}</span>`;
+const statusChip = s => ({open:'<span class="chip accent">open</span>', tp:'<span class="chip good">target</span>',
+  sl:'<span class="chip bad">stopped</span>', time:'<span class="chip">time stop</span>', cancelled:'<span class="chip">cancelled</span>'}[s] || esc(s));
+
+function table(el, head, rows, empty) {
+  if (!rows.length) { el.innerHTML = `<div class="empty">${empty}</div>`; return; }
+  el.innerHTML = "<table><thead><tr>" + head.map(h => `<th class="${h[1] || ""}">${h[0]}</th>`).join("") + "</tr></thead><tbody>" +
+    rows.map(r => "<tr>" + r.map((c, i) => `<td class="${head[i][1] || ""}">${c}</td>`).join("") + "</tr>").join("") + "</tbody></table>";
+}
+function tile(k, v, s) { return `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s || ""}</div></div>`; }
+function statTile(label, s) {
+  if (!s || !s.n) return tile(label, "–", "no closed signals");
+  return tile(label, signed(s.total_r, 1), `${s.n} closed · win ${pct(s.win, 0)} · avg ${signed(s.avg_r)}`);
+}
+
+function render(d) {
+  const hb = d.heartbeat, model = d.model, st = d.stats || {};
+  $("sub").textContent = `Build ${d.version} · updated ${new Date(d.now).toLocaleTimeString()}`;
+  const stale = !hb || d.now - hb.ts > 12 * 60000;
+  const phaseNames = {backfill:"Downloading history", replay:"Rebuilding candidates", train:"Training first model", running:"Scanning"};
+  const chips = [];
+  chips.push(d.mode === "live" ? '<span class="chip good">LIVE signals</span>' : '<span class="chip warn">PAPER mode</span>');
+  chips.push(d.phase === "running" ? (stale ? '<span class="chip bad">scanner not reporting</span>' : '<span class="chip good">scanner running</span>')
+                                   : `<span class="chip accent">${esc(phaseNames[d.phase] || d.phase)}</span>`);
+  if (d.paused) chips.push('<span class="chip bad">signals paused</span>');
+  $("chips").innerHTML = chips.join(" ");
+
+  const banners = [];
+  if (d.empty) banners.push('<div class="banner">The database has not been created yet. The service is still starting.</div>');
+  else if (d.phase === "unknown") banners.push('<div class="banner">The service has not run on this database yet.</div>');
+  else if (d.phase !== "running") banners.push(`<div class="banner"><b>First-start setup: ${esc(phaseNames[d.phase] || d.phase)}.</b> This takes about 40 minutes in total; scanning starts automatically afterwards.</div>`);
+  else if (stale) banners.push(`<div class="banner bad"><b>The scanner has not reported since ${hb ? ago(hb.ts) : "start"}.</b> It should report every 5 minutes. Check the container logs in Docker Manager.</div>`);
+  if (d.mode === "paper" && !d.empty) banners.push('<div class="banner warn"><b>Paper mode.</b> The model has not passed validation, so every signal is a paper signal: track it, do not trade it with real money. Real grades (A/B) appear only after the validation gates pass.</div>');
+  $("banners").innerHTML = banners.join("");
+
+  $("tiles").innerHTML = [
+    tile("Signals today", d.sent_today ?? 0, `${(d.open || []).length} open now`),
+    statTile("Today", st.today), statTile("Last 7 days", st.d7), statTile("Last 30 days", st.d30),
+    statTile("Paper signals (all)", st.paper), statTile("Real signals (all)", st.real),
+    tile("Candidates scanned 24h", d.data ? d.data.candidates_24h : "–", d.data ? `${d.data.labelled.toLocaleString()} labelled in total` : ""),
+  ].join("");
+
+  const sigHead = [["Time"],["Coin"],["Side"],["Type"],["Entry","num"],["Stop","num"],["Target","num"],["Lev","num"],["Status"],["Result","num"],["On margin","num"],["Closed"]];
+  const sigRow = s => [dt(s.ts), `<b>${esc(s.symbol)}</b>`, side(s.side), grade(s.grade), price(s.entry),
+    `${price(s.sl)} <span class="muted">(${pct(s.sl_pct, 2)})</span>`, `${price(s.tp)} <span class="muted">(${pct(s.tp_pct, 2)})</span>`,
+    s.leverage + "x", statusChip(s.status), signed(s.ret_r), s.ret_margin == null ? "–" : signed(s.ret_margin * 100, 1, "%"), dt(s.exit_ts)];
+  table($("open"), sigHead.slice(0, 9).concat([["Best so far","num"],["Worst so far","num"],["Time stop"]]),
+    (d.open || []).map(s => sigRow(s).slice(0, 9).concat([pct(s.mfe, 2), pct(s.mae, 2), dt(s.expires_ts)])), "No open signals.");
+  table($("history"), sigHead, (d.signals || []).filter(s => s.status !== "open").map(sigRow), "No closed signals yet.");
+
+  const skipNames = {sent:"sent as a signal", would_send:"would send"};
+  $("skips").innerHTML = (d.skips_24h || []).map(s => `<span class="chip">${esc(skipNames[s.decision] || s.decision.replace("skipped:", "").replaceAll("_", " "))} · ${s.n}</span>`).join(" ") || '<span class="muted">No candidates in the last 24 hours.</span>';
+  table($("cands"), [["Time"],["Coin"],["Side"],["Setup"],["ATR","num"],["Model P(target)","num"],["Decision"],["What happened"],["Result","num"]],
+    (d.candidates || []).map(c => [dt(c.ts), `<b>${esc(c.symbol)}</b>`, side(c.side), esc(c.kind || ""), pct(c.atr_pct, 2), c.model_p == null ? "–" : pct(c.model_p, 0),
+      c.decision === "sent" ? '<span class="chip accent">sent</span>' : esc((c.decision || "").replace("skipped:", "").replaceAll("_", " ")),
+      c.outcome ? statusChip(c.outcome) : '<span class="muted">pending</span>', signed(c.ret_r)]), "No live candidates yet.");
+
+  if (model) {
+    const item = (k, v) => `<div><b>${k}</b>${v}</div>`;
+    $("model").innerHTML = [
+      item("Version", esc(model.version)), item("Status", model.status === "champion" ? '<span class="chip good">validated</span>' : '<span class="chip warn">not validated (paper only)</span>'),
+      item("Trained", dt(model.trained_ts)), item("Training rows", (model.n_train || 0).toLocaleString() + ` over ${num(model.days, 1)} days (${model.n_live ?? 0} live)`),
+      item("Unfiltered base rate", `${pct(model.base_rate)} hit target, ${signed(model.base_avg_r, 3)} each`),
+      item("Same-moment selection skill", num(model.xsec_corr, 3) + ' <span class="muted">(needs ≥ 0.03)</span>'),
+      item("Out-of-sample at threshold", model.oos_n ? `${signed(model.oos_avg_r)} avg over ${model.oos_n} trades, t = ${num(model.oos_t, 1)} <span class="muted">(needs t ≥ 2 over ≥ 40)</span>` : "–"),
+      item("Untouched holdout", model.hold_n ? `${signed(model.hold_avg_r)} avg over ${model.hold_n} trades` : "–"),
+      item("Forward record", `${model.paper_n ?? 0} closed signals, ${signed(model.paper_avg_r)} avg <span class="muted">(needs ≥ 20, positive)</span>`),
+    ].join("");
+  } else $("model").innerHTML = '<div class="empty">No model trained yet.</div>';
+  table($("models"), [["Trained"],["Version"],["Status"],["Rows","num"],["Selection skill","num"],["OOS avg","num"],["OOS t","num"],["OOS trades","num"],["Holdout avg","num"]],
+    (d.models || []).map(m => [dt(m.trained_ts), esc(m.version), esc(m.status), (m.n_train || 0).toLocaleString(), num(m.xsec_corr, 3), signed(m.oos_avg_r), num(m.oos_t, 1), m.oos_n ?? "–", signed(m.hold_avg_r)]), "No training runs yet.");
+
+  const item = (k, v) => `<div><b>${k}</b>${v}</div>`;
+  const dd = d.data || {};
+  $("system").innerHTML = [
+    item("Phase", esc(phaseNames[d.phase] || d.phase)), item("Last scan reported", hb ? `${ago(hb.ts)} (${dt(hb.ts)})` : "never"),
+    item("Last price bar stored", dd.last_bar_ts ? `${ago(dd.last_bar_ts + 300000)} (${dt(dd.last_bar_ts)})` : "–"),
+    item("History starts", dt(dd.first_bar_ts)), item("Coins tracked", dd.symbols ?? "–"),
+    item("Last scan", hb ? `${hb.candidates} candidates, ${hb.signals} signals, collect ${num(hb.collect_s, 1)}s + scan ${num(hb.scan_s, 1)}s` : "–"),
+    item("Collection errors (last cycle)", hb ? hb.errors : "–"), item("Telegram", hb ? (hb.telegram ? "configured" : '<span class="neg">not configured</span>') : "–"),
+    item("Candidates stored", (dd.candidates ?? 0).toLocaleString() + ` (${(dd.live_candidates ?? 0).toLocaleString()} live)`),
+    item("Last nightly training", esc(d.last_train_day || "not yet")), item("Signals paused", d.paused ? "yes (/resume in Telegram)" : "no"), item("Build", esc(d.version)),
+  ].join("");
+}
+
+async function load() {
+  try {
+    const r = await fetch("api/data", {credentials: "same-origin"});
+    if (r.status === 401) { $("app").hidden = true; $("login").hidden = false; $("pw").focus(); return; }
+    render(await r.json());
+    $("login").hidden = true; $("app").hidden = false;
+  } catch (e) { $("sub").textContent = "Connection problem, retrying…"; }
+}
+$("loginForm").addEventListener("submit", async e => {
+  e.preventDefault(); $("loginErr").textContent = "";
+  const r = await fetch("login", {method: "POST", headers: {"Content-Type": "application/json"}, credentials: "same-origin", body: JSON.stringify({password: $("pw").value})});
+  if (r.ok) { $("pw").value = ""; load(); } else { $("loginErr").textContent = (await r.json().catch(() => ({}))).error || "Sign-in failed"; }
+});
+document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
+  ["signals", "candidates", "learning", "system"].forEach(t => $("tab-" + t).hidden = t !== b.dataset.tab);
+}));
+load(); setInterval(load, 30000);
+</script>
+</body>
+</html>
