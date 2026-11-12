@@ -1,0 +1,36 @@
+# Overrides for lts/config.py defaults. Anything omitted keeps its default.
+# Machine-specific overrides can go in config.local.yaml (git-ignored).
+
+universe:
+  min_qvol_24h: 10000000        # Binance 24h volume floor (USD) for a coin to be signalled
+  min_weex_qvol_24h: 300000     # Weex-side volume floor
+  require_weex: true            # only signal coins you can actually trade on Weex
+
+trade:
+  sl_atr_mult: 2.0              # stop = 2 x ATR(5m), clamped to [min_sl_pct, max_sl_pct]
+  rr: 2.0                       # target = 2 x stop
+  horizon_bars: 96              # time stop after 8 hours
+  min_sl_pct: 0.010             # below ~1% fees eat more than a quarter of the risk
+  max_sl_pct: 0.025             # coins needing a wider stop are skipped
+  target_margin_return: 0.10    # leverage is chosen so the target is worth +10% on margin
+  max_leverage: 10
+  taker_fee: 0.0008             # Weex VIP0
+  maker_fee: 0.0002
+
+risk:
+  risk_per_trade: 0.01          # account fraction lost when a stop is hit
+  max_open: 2
+  max_per_day: 3
+  daily_stop_r: -2.0            # stop signalling for the day at -2R
+  max_consecutive_losses: 2
+
+signal:
+  target_per_day: 1.0
+  fallback_after_utc_hour: 14   # grade-B "best of day" allowed after 14:00 UTC (19:30 IST)
+  min_ev_r: 0.10                # never signal below this expected value
+
+telegram:
+  report_utc_hour: 18           # daily report at 18:00 UTC (23:30 IST)
+  account_size_usdt: 0          # optional: set to quote margin in USDT in each signal
+  local_utc_offset_minutes: 330 # show times in IST as well as UTC
+  local_tz_label: IST

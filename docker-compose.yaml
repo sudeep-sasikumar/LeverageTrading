@@ -1,0 +1,38 @@
+# LTS (Leverage Trading Signals) on a VPS (README "Running on the VPS").
+# Made for Hostinger Docker Manager -> "Compose from URL" with this file's raw GitHub link:
+#   https://raw.githubusercontent.com/sudeep-sasikumar/LeverageTrading/main/docker-compose.yaml
+# Hostinger downloads ONLY this file, so nothing here refers to other files. The image is built
+# by GitHub Actions (.github/workflows/docker-image.yml) on every push; a redeploy pulls the latest.
+#
+# No ports are opened: the bot only makes outbound calls (Binance, Weex, Telegram).
+# First start on an empty volume downloads 30 days of history and trains the first model
+# (about 40 minutes); Telegram gets a message when scanning begins.
+# The VPS must be in a region Binance serves (not the US).
+#
+# Environment variables to enter in Docker Manager:
+#   TELEGRAM_BOT_TOKEN   from @BotFather. Use a bot no other app polls if you want /status etc. to work.
+#   TELEGRAM_CHAT_ID     your chat id (a group id starts with -100)
+#   ACCOUNT_SIZE_USDT    optional - quotes each signal's margin in USDT as well as in % of account
+#   RISK_PER_TRADE       optional - fraction of the account lost when a stop is hit (default 0.01)
+#   MAX_SIGNALS_PER_DAY  optional - default 3
+#   BACKFILL_DAYS        optional - history downloaded on first start (default 30)
+services:
+  lts:
+    image: ghcr.io/sudeep-sasikumar/leveragetrading:latest
+    pull_policy: always                   # a redeploy picks up the newest image
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      ACCOUNT_SIZE_USDT: ${ACCOUNT_SIZE_USDT:-}
+      RISK_PER_TRADE: ${RISK_PER_TRADE:-}
+      MAX_SIGNALS_PER_DAY: ${MAX_SIGNALS_PER_DAY:-}
+      BACKFILL_DAYS: ${BACKFILL_DAYS:-}
+    volumes:
+      - lts_data:/app/data                # database, models, logs - survives redeploys
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+volumes:
+  lts_data:
