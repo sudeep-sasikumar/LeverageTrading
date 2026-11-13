@@ -135,10 +135,12 @@ function render(d) {
   chips.push(d.mode === "live" ? '<span class="chip good">LIVE signals</span>' : '<span class="chip warn">PAPER mode</span>');
   chips.push(d.phase === "running" ? (stale ? '<span class="chip bad">scanner not reporting</span>' : '<span class="chip good">scanner running</span>')
                                    : `<span class="chip accent">${esc(phaseNames[d.phase] || d.phase)}</span>`);
+  if (d.error) chips.push('<span class="chip bad">start-up error</span>');
   if (d.paused) chips.push('<span class="chip bad">signals paused</span>');
   $("chips").innerHTML = chips.join(" ");
 
   const banners = [];
+  if (d.error) banners.push(`<div class="banner bad"><b>Start-up problem (attempt ${d.error.attempt}, ${ago(d.error.ts)}):</b> ${esc(d.error.message)}<br>It retries automatically every few minutes; nothing needs restarting once the cause is fixed.</div>`);
   if (d.empty) banners.push('<div class="banner">The database has not been created yet. The service is still starting.</div>');
   else if (d.phase === "unknown") banners.push('<div class="banner">The service has not run on this database yet.</div>');
   else if (d.phase !== "running") banners.push(`<div class="banner"><b>First-start setup: ${esc(phaseNames[d.phase] || d.phase)}.</b> This takes about 40 minutes in total; scanning starts automatically afterwards.</div>`);

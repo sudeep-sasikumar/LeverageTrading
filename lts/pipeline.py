@@ -42,6 +42,49 @@ def load_dataset(db: DB, since_ts: int, until_ts: int | None = None, min_bars: i
     return ds
 
 
+PANEL_COLS = ["r_1h", "r_4h", "r_24h", "r_3d", "rvol_1h", "z_1h", "z_4h"]   # what market_context uses
+
+
+def symbol_dataset(db: DB, sym: str, meta: dict, since_ts: int = 0, until_ts: int | None = None,
+                   min_bars: int = 300) -> Dataset | None:
+    """A Dataset holding a single symbol: same contents load_dataset would give for it."""
+    k = db.klines(sym, since_ts, until_ts)
+    if len(k) < min_bars:
+        return None
+    ds = Dataset(meta=meta)
+    ds.klines[sym] = F.regularize(k)
+    slow_since = since_ts - 2 * 86_400_000
+    cut = until_ts + F.BAR_MS if until_ts is not None else None
+    for name, table, cols, start in (("oi", "oi", ("oi",), slow_since),
+                                     ("lsr", "lsr", ("top_pos", "global_acc"), slow_since),
+                                     ("funding", "funding", ("rate",), since_ts - 5 * 86_400_000),
+                                     ("premium", "premium", ("mark", "index_px", "funding_rate"), slow_since)):
+        df = db.frame(f"SELECT ts,{','.join(cols)} FROM {table} WHERE symbol=? AND ts>=? ORDER BY ts", [sym, start])
+        if cut is not None:
+            df = df[df["ts"] <= cut].reset_index(drop=True)
+        if len(df):
+            getattr(ds, name)[sym] = df
+    return ds
+
+
+def streamed_context(db: DB, meta: dict, symbols: list[str], since_ts: int = 0, until_ts: int | None = None,
+                     min_bars: int = 300):
+    """Same result as build_context(load_dataset(...)) but reads one symbol at a time, keeping only
+    the few columns the cross-sectional context needs (a fraction of the memory)."""
+    panels, btc = {}, None
+    for sym in symbols:
+        if not (meta.get(sym, {}).get("active", 1) or sym == "BTCUSDT"):
+            continue
+        k = db.klines(sym, since_ts, until_ts)
+        if len(k) < min_bars:
+            continue
+        kr = F.regularize(k)
+        panels[sym] = F.panel_inputs(kr)[PANEL_COLS]
+        if sym == "BTCUSDT":
+            btc = kr
+    return F.market_context(panels, btc)
+
+
 def build_context(ds: Dataset, symbols: list[str] | None = None):
     """Market context from every symbol in the dataset that is an active crypto perp.
 

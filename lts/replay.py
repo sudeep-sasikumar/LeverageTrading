@@ -13,7 +13,7 @@ from .candidates import apply_cooldown, kind_of, trigger_mask
 from .config import Config
 from .db import DB
 from .labels import label_path
-from .pipeline import build_context, features_to_json, load_dataset, raw_frame
+from .pipeline import features_to_json, raw_frame, streamed_context, symbol_dataset
 from .scoring import rule_score
 
 log = logging.getLogger("lts.replay")
@@ -26,23 +26,28 @@ INSERT = """INSERT OR REPLACE INTO candidates
 
 def replay(cfg: Config, db: DB, days: float = 0.0, rebuild: bool = True) -> int:
     t0 = time.time()
-    ds = load_dataset(db, since_ts=0)
-    if not ds.klines:
+    last = db.last_kline_ts()
+    if not last:
         log.warning("no klines stored - run backfill first")
         return 0
-    market, ranks, _ = build_context(ds)
-    log.info("context built for %d symbols in %.0fs", len(ds.klines), time.time() - t0)
+    meta = {r["symbol"]: dict(r) for r in db.query("SELECT * FROM symbols")}
+    symbols = sorted(last)
+    # one symbol at a time: holding all history at once needs >2 GB, too much for a shared VPS
+    market, ranks = streamed_context(db, meta, symbols)
+    log.info("context built for %d symbols in %.0fs", len(symbols), time.time() - t0)
     if rebuild:
         db.execute("DELETE FROM candidates WHERE source='replay'")
-    last_ts = max(k.index[-1] for k in ds.klines.values())
+    last_ts = max(last.values())
     min_ts = last_ts - int(days * 86_400_000) if days > 0 else 0
     tc = cfg.trade
     max_h = max([tc.horizon_bars] + list(tc.grid_horizon))
     now = int(time.time() * 1000)
     total = 0
-    for n, sym in enumerate(sorted(ds.klines), 1):
-        meta = ds.meta.get(sym, {})
-        if not meta.get("active", 0):
+    for n, sym in enumerate(symbols, 1):
+        if not meta.get(sym, {}).get("active", 0):
+            continue
+        ds = symbol_dataset(db, sym, meta)
+        if ds is None:
             continue
         k = ds.klines[sym]
         f = raw_frame(ds, sym, market, ranks)
@@ -74,6 +79,6 @@ def replay(cfg: Config, db: DB, days: float = 0.0, rebuild: bool = True) -> int:
             db.executemany(INSERT, rows)
             total += len(rows)
         if n % 50 == 0:
-            log.info("replay %d/%d symbols, %d candidates (%.0fs)", n, len(ds.klines), total, time.time() - t0)
+            log.info("replay %d/%d symbols, %d candidates (%.0fs)", n, len(symbols), total, time.time() - t0)
     log.info("replay done: %d labelled candidates in %.0fs", total, time.time() - t0)
     return total

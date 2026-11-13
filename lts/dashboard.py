@@ -95,6 +95,9 @@ def snapshot(db_path: Path) -> dict:
         out["phase"] = kv.get("phase", "unknown")
         out["paused"] = bool(kv.get("paused", False))
         out["heartbeat"] = kv.get("heartbeat")
+        err = kv.get("last_error")
+        hb_ts = (out["heartbeat"] or {}).get("ts", 0)
+        out["error"] = err if err and err.get("ts", 0) > hb_ts else None     # cleared by the next good scan
         out["last_train_day"] = kv.get("last_train_day")
 
         last_bar = q("SELECT MAX(ts) AS t FROM klines WHERE symbol='BTCUSDT'")[0]["t"]

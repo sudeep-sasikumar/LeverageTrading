@@ -80,30 +80,8 @@ def main(argv: list[str] | None = None) -> None:
             from .dashboard import serve
             asyncio.run(serve(cfg))
         elif args.cmd == "start":
-            import os
-            from .backfill import backfill
-            from .learner import train_and_maybe_promote
-            from .replay import replay
-            from .service import run_service
-            log = logging.getLogger("lts.start")
-            log.info("LTS version %s", os.environ.get("APP_VERSION", "dev"))
-            from .dashboard import start_in_thread
-            start_in_thread(cfg)                      # visible during the first-start setup too
-            # each step is skipped once done, so a restart mid-bootstrap resumes where it stopped
-            if not db.get("bootstrap_backfill_done"):
-                days = float(os.environ.get("BACKFILL_DAYS") or 30)
-                db.set("phase", "backfill")
-                log.info("first start: downloading %.0f days of history (about 30 minutes)", days)
-                asyncio.run(backfill(cfg, db, days=days))
-                db.set("bootstrap_backfill_done", True)
-            if not db.get("bootstrap_replay_done"):
-                db.set("phase", "replay")
-                replay(cfg, db)
-                db.set("bootstrap_replay_done", True)
-            if not db.query("SELECT 1 FROM models LIMIT 1"):
-                db.set("phase", "train")
-                log.info("\n%s", train_and_maybe_promote(cfg, db)["summary"])
-            asyncio.run(run_service(cfg, db))
+            from .bootstrap import main as start_main
+            start_main(cfg, db)
         elif args.cmd == "scan":
             from .service import scan_once
             asyncio.run(scan_once(cfg, db, collect=not args.no_collect))
