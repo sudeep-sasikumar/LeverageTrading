@@ -34,6 +34,29 @@ def explain(e: BaseException) -> str:
     return f"{type(e).__name__}: {e}"[:400]
 
 
+COMPOSE_VERSION = "2"           # bump together with LTS_COMPOSE_VERSION in docker-compose.yaml
+DEFAULT_DOMAIN = "srv1479428.hstgr.cloud"
+
+
+def deployment_report(env=None) -> tuple[list[str], bool]:
+    """(lines for the start-up message, whether something needs fixing) for a container run."""
+    env = os.environ if env is None else env
+    lines, problem = [], False
+    if env.get("LTS_COMPOSE_VERSION") != COMPOSE_VERSION:
+        problem = True
+        lines.append("⚠️ This project was created from an older docker-compose.yaml, so the dashboard has no "
+                     "route (404) and some settings are not passed in. In Hostinger Docker Manager open the "
+                     "project, replace its compose file with the current one from GitHub (or re-create the "
+                     "project from the URL), keep the environment variables, and deploy.")
+    bind = env.get("DASHBOARD_BIND") or "127.0.0.1"
+    if bind not in ("127.0.0.1", "localhost", "::1") and not env.get("DASHBOARD_PASSWORD"):
+        problem = True
+        lines.append("⚠️ Dashboard is OFF: set DASHBOARD_PASSWORD in the project's environment variables.")
+    elif not problem:
+        lines.append(f"Dashboard: https://{env.get('DOMAIN') or DEFAULT_DOMAIN}/lts/")
+    return lines, problem
+
+
 def notify(cfg: Config, text: str) -> None:
     from .telegram import Telegram
 
@@ -74,8 +97,15 @@ def main(cfg: Config, db: DB) -> None:
     from .dashboard import start_in_thread
     from .service import run_service
     from .telegram import esc
-    log.info("LTS version %s", os.environ.get("APP_VERSION", "dev"))
+    version = os.environ.get("APP_VERSION", "dev")[:7]
+    log.info("LTS version %s", version)
     start_in_thread(cfg)                       # reachable during setup and while failing, too
+    lines, problem = deployment_report()
+    for line in lines:
+        (log.warning if problem else log.info)("deployment: %s", line)
+    db.set("deployment", {"lines": lines, "problem": problem})
+    phase = "first-start setup (about 40 min)" if not db.get("bootstrap_replay_done") else "scanning shortly"
+    notify(cfg, f"🔄 LTS container up (build {esc(version)}): {phase}.\n" + "\n".join(esc(x) for x in lines))
     attempt, last_msg = 0, None
     while True:
         try:

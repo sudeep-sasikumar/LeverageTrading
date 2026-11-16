@@ -64,6 +64,13 @@ Same pattern as CryptoLaunchScanner. Pick a VPS region Binance serves (not the U
    | `MAX_SIGNALS_PER_DAY` | optional | default `3` |
    | `BACKFILL_DAYS` | optional | history downloaded on first start (default `30`) |
 
+**Updating the compose file.** Hostinger keeps the copy of `docker-compose.yaml` from when the project was
+created; a redeploy only pulls the newest image. When the compose file changes (it did on 12 Nov, when the
+dashboard was added), open the project in Docker Manager, replace its compose content with the current
+file from GitHub (or delete the project and re-create it from the URL - the `lts_data` volume and its data
+survive as long as you don't delete volumes), keep the environment variables, and deploy. On every start
+the bot sends a Telegram message with the dashboard link, or with exactly what is missing.
+
 The first start on an empty volume downloads 30 days of history, rebuilds the labelled
 candidates and trains the first model (about 40 minutes), then sends "LTS started" on
 Telegram. Data (database, models, logs) lives in the `lts_data` volume and survives

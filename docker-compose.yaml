@@ -3,6 +3,9 @@
 #   https://raw.githubusercontent.com/sudeep-sasikumar/LeverageTrading/main/docker-compose.yaml
 # Hostinger downloads ONLY this file, so nothing here refers to other files. The image is built
 # by GitHub Actions (.github/workflows/docker-image.yml) on every push; a redeploy pulls the latest.
+# Hostinger keeps the copy of this file from when the project was created: a redeploy updates the
+# image, not this file. When this file changes, paste it into the project's compose editor in Docker
+# Manager (or re-create the project from the URL). The app warns on Telegram when its copy is stale.
 #
 # HTTPS dashboard: the VPS already runs Traefik (set up for Ignition & Coil). The dashboard is served
 # under /lts/ on the same hostname, so it reuses that hostname's certificate: no new domain needed.
@@ -34,6 +37,8 @@ services:
       BACKFILL_DAYS: ${BACKFILL_DAYS:-}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}   # required: without it the dashboard stays off
       DASHBOARD_COOKIE_SECURE: "true"               # the login cookie is only sent over HTTPS
+      DOMAIN: ${DOMAIN:-srv1479428.hstgr.cloud}     # used to report the dashboard link on Telegram
+      LTS_COMPOSE_VERSION: "2"                      # lets the app detect a project made from an older copy of this file
     volumes:
       - lts_data:/app/data                # database, models, logs - survives redeploys
     expose:
