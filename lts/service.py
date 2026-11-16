@@ -223,12 +223,81 @@ class Service:
                     self.db.set("last_train_day", day)
                     await self.retrain()
                     self.db.prune(self.cfg.storage.keep_klines_days)
+                gl = self.cfg.grindlab
+                if gl.enabled and self.db.get("last_grindlab_day") != day and \
+                        (now.hour, now.minute) >= (gl.nightly_utc_hour, gl.nightly_utc_minute):
+                    self.db.set("last_grindlab_day", day)
+                    await self.grind_nightly()
                 if last_report_day != day and (now.hour, now.minute) >= (tc.report_utc_hour, tc.report_utc_minute):
                     last_report_day = day
                     self.db.set("last_report_day", day)
                     await self.daily_report()
             except Exception:
                 log.exception("slow loop failed")
+
+    async def grind_loop(self) -> None:
+        """Hourly (3 minutes after the hour): latest 1h bars -> early-grind detection -> paper trades."""
+        if not self.cfg.grindlab.enabled:
+            return
+        while True:
+            now = time.time()
+            await asyncio.sleep(max(1.0, (math.floor(now / 3600) + 1) * 3600 + 180 - now))
+            try:
+                await self.grind_hour()
+            except Exception:
+                log.exception("grind lab hourly failed")
+
+    async def grind_hour(self) -> list[dict]:
+        from . import grindlab
+
+        def work():
+            own = DB(self.cfg.path(self.cfg.storage.db_path))
+            try:
+                return grindlab.hourly(self.cfg, own)
+            finally:
+                own.close()
+        rows = await asyncio.to_thread(work)
+        meta = {r["symbol"]: dict(r) for r in self.db.query("SELECT symbol, on_weex, price_precision FROM symbols")}
+        cands = []
+        for r in rows:
+            m = meta.get(r["symbol"], {})
+            feats = {k: r.get(k) for k in grindlab.SHOW_FACTORS if r.get(k) is not None}
+            cands.append({"symbol": r["symbol"], "side": r["side"], "ts": r["ts"], "ref_price": r["price"],
+                          "atr_pct": r.get("atr_1h"), "kind": "grindlab", "score_n": r["score"],
+                          "model_p": r.get("model_p"), "checks": r.get("checks"), "catalyst": r.get("catalyst", 0),
+                          "on_weex": bool(m.get("on_weex")), "src": "binance",
+                          "price_precision": m.get("price_precision"), "features": feats})
+        worth = [c for c in cands if c["catalyst"] or c["score_n"] >= self.cfg.grindlab.min_score]
+        for c in worth:                                  # Weex book only for the ones that may be sent
+            c["book"] = None
+            if c["on_weex"]:
+                try:
+                    c["book"] = await self.weex.book(c["symbol"])
+                except Exception:
+                    pass
+            wt = self.collector.weex_tickers.get(c["symbol"]) or {}
+            c["weex_qv24"] = wt.get("qv24")
+            if c["book"] and c["ref_price"]:
+                c["features"]["weex_dev_bps"] = (c["book"]["mid"] / c["ref_price"] - 1) * 1e4 * c["side"]
+        await self.engine.decide(worth, None, int(time.time() * 1000))
+        for c in cands:
+            self.db.execute("UPDATE grind_live SET decision=? WHERE symbol=? AND ts=? AND side=?",
+                            (c.get("decision") or "skipped:below_score", c["symbol"], c["ts"], c["side"]))
+        log.info("grind lab hour: %d early grinds, %d with enough traits, %d sent", len(cands), len(worth),
+                 sum(1 for c in worth if c.get("decision") == "sent"))
+        return cands
+
+    async def grind_nightly(self) -> None:
+        from . import grindlab
+
+        def work():
+            own = DB(self.cfg.path(self.cfg.storage.db_path))
+            try:
+                return grindlab.nightly(self.cfg, own)
+            finally:
+                own.close()
+        rep = await asyncio.to_thread(work)
+        await self.tg.send(grindlab.nightly_text(rep))
 
     async def daily_report(self) -> None:
         from .movers import review, review_text
@@ -292,7 +361,8 @@ class Service:
             mode = "no model yet - PAPER signals only"
         await self.tg.send(f"🤖 LTS started: {esc(mode)}. Scanning every 5 minutes.")
         tasks = [asyncio.create_task(t) for t in
-                 (self.bar_loop(), self.track_loop(), self.slow_loop(), self.tg.poll_commands(self.command))]
+                 (self.bar_loop(), self.track_loop(), self.slow_loop(), self.grind_loop(),
+                  self.tg.poll_commands(self.command))]
         try:
             await asyncio.gather(*tasks)
         finally:

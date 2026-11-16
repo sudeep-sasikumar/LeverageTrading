@@ -69,6 +69,7 @@ class Grind:
     min_rank: float = 0.0                # rank = R^2 x efficiency x min(6h move, 15%). The 31-day replay showed
                                          # higher ranks did NOT do better, so no cut-off: rank only orders them
     live: bool = False                   # paper-only until the grind track has a proven forward record
+    signals_from_5m: bool = False        # grind paper trades come from the grind lab (hourly); 5m grinds are logged only
     sl_atr1h_mult: float = 2.5           # stop = 2.5 x hourly ATR
     rr: float = 1.0                      # target = 1 x stop
     horizon_bars: int = 288              # hold up to 24h
@@ -80,6 +81,19 @@ class Grind:
     min_gap_hours: float = 4.0           # spread the day's grind signals out
     grid_sl_mult: list = field(default_factory=lambda: [1.5, 2.5])
     grid_rr: list = field(default_factory=lambda: [1.0, 2.0])
+
+
+@dataclass
+class GrindLab:
+    """Nightly study of what successful steady grinders share + hourly detection and paper trades."""
+    enabled: bool = True
+    days: float = 120.0                  # history studied (hourly bars)
+    nightly_utc_hour: int = 1
+    nightly_utc_minute: int = 10
+    min_score: int = 8                   # checklist traits (of 12) needed for a paper trade
+    stop: float = 0.03                   # paper-trade plan = the study's success definition
+    target: float = 0.06
+    horizon_hours: int = 24
 
 
 @dataclass
@@ -160,6 +174,7 @@ class Config:
     trigger: Trigger = field(default_factory=Trigger)
     trade: Trade = field(default_factory=Trade)
     grind: Grind = field(default_factory=Grind)
+    grindlab: GrindLab = field(default_factory=GrindLab)
     risk: Risk = field(default_factory=Risk)
     signal: Signal = field(default_factory=Signal)
     learn: Learn = field(default_factory=Learn)

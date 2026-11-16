@@ -148,6 +148,17 @@ def snapshot(db_path: Path) -> dict:
             "grind": _stats([r for r in closed if r["kind"] == "grind"]),
         }
         out["movers"] = kv.get("movers_latest")
+        out["grindlab"] = kv.get("grindlab_report")
+        if q("SELECT 1 FROM sqlite_master WHERE type='table' AND name='grind_live'"):
+            live = q("SELECT symbol, ts, side, price, score, model_p, catalyst, checks, factors, decision FROM grind_live "
+                     "WHERE ts>=? ORDER BY ts DESC, score DESC LIMIT 300", (now - 2 * DAY,))
+            for r in live:
+                r["checks"] = json.loads(r["checks"] or "{}")
+                r["factors"] = json.loads(r["factors"] or "{}")
+            out["grind_live"] = live
+        if q("SELECT 1 FROM sqlite_master WHERE type='table' AND name='grind_episodes'"):
+            out["grind_episodes"] = q("SELECT symbol, side, start, end, move, hours, tags FROM grind_episodes "
+                                      "WHERE start>=? ORDER BY start DESC LIMIT 400", (now - 7 * DAY,))
         if q("SELECT 1 FROM sqlite_master WHERE type='table' AND name='daily_movers'"):
             hist = q("SELECT day, symbol, side, ret24, r2, hours_with, rvol24, oi_chg24, flagged_ts, flagged_kind, "
                      "flagged_left, signal_id, signal_status, signal_r FROM daily_movers ORDER BY day DESC, "

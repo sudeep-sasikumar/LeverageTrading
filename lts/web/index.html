@@ -79,7 +79,7 @@ button.primary{background:var(--accent);color:#fff;border-color:transparent;font
     <button data-tab="signals" class="on">Signals</button>
     <button data-tab="candidates">Candidates scanned</button>
     <button data-tab="learning">Model &amp; learning</button>
-    <button data-tab="movers">Daily movers</button>
+    <button data-tab="grinders">Grinders</button>
     <button data-tab="system">System</button>
   </div>
 
@@ -95,13 +95,24 @@ button.primary{background:var(--accent);color:#fff;border-color:transparent;font
     <h2>Model in use</h2><div class="panel kv" id="model"></div>
     <h2>Training history</h2><div class="panel scroll" id="models"></div>
   </section>
-  <section id="tab-movers" hidden>
-    <p class="muted">Each day LTS looks back at the coins that moved 10%+ in a steady line (straight path, most
-    hours moving the same way, no single candle doing the work), records what their data looked like, and checks
-    whether it flagged them in time. This is the record used to judge and improve the grind setup.</p>
+  <section id="tab-grinders" hidden>
+    <p class="muted">Grinders are coins that move steadily one way for hours (straight path, most hours the same way, no single
+    candle doing the work). Every night LTS re-studies the last ~4 months: it finds every steady grind, marks the moments you
+    could have entered, and compares the ones that kept going with lookalikes that fizzled. Every hour it checks which coins
+    are grinding now and how many of those traits they have. The best are paper-traded (−3% stop, +6% target, 24h).</p>
+    <div class="tiles" id="grindTiles"></div>
+    <h2>Grinding right now (last 48h)</h2><div class="panel scroll" id="grindLive"></div>
+    <h2>Grind paper trades</h2><div class="panel scroll" id="grindTrades"></div>
+    <h2 id="labTitle">What successful grinders have in common</h2>
+    <div id="labSummary" class="banner"></div>
+    <div class="panel scroll" id="labTraits"></div>
+    <h2>More traits = bigger moves? (unseen days, by number of traits)</h2><div class="panel scroll" id="labScore"></div>
+    <h2>Other factors that separated winners from lookalikes in every period</h2><div class="panel scroll" id="labFactors"></div>
+    <h2>Steady grinds, last 7 days</h2><div class="panel scroll" id="grindEpisodes"></div>
+    <h2 id="moverTitle">Daily review: did LTS catch the day's steady movers?</h2>
     <div class="tiles" id="moverTiles"></div>
-    <h2 id="moverTitle">Latest review</h2><div class="panel scroll" id="moverLatest"></div>
-    <h2>History</h2><div class="panel scroll" id="moverHistory"></div>
+    <div class="panel scroll" id="moverLatest"></div>
+    <h2>Review history</h2><div class="panel scroll" id="moverHistory"></div>
   </section>
   <section id="tab-system" hidden>
     <h2>Health</h2><div class="panel kv" id="system"></div>
@@ -139,7 +150,7 @@ function render(d) {
   const hb = d.heartbeat, model = d.model, st = d.stats || {};
   $("sub").textContent = `Build ${d.version} · updated ${new Date(d.now).toLocaleTimeString()}`;
   const stale = !hb || d.now - hb.ts > 12 * 60000;
-  const phaseNames = {backfill:"Downloading history", replay:"Rebuilding candidates", train:"Training first model", running:"Scanning"};
+  const phaseNames = {backfill:"Downloading history", replay:"Rebuilding candidates", train:"Training first model", grindlab:"Grind lab: first study", running:"Scanning"};
   const chips = [];
   chips.push(d.mode === "live" ? '<span class="chip good">LIVE signals</span>' : '<span class="chip warn">PAPER mode</span>');
   chips.push(d.phase === "running" ? (stale ? '<span class="chip bad">scanner not reporting</span>' : '<span class="chip good">scanner running</span>')
@@ -203,7 +214,7 @@ function render(d) {
     tile("Got a signal", ms.n ? pct(ms.signalled / ms.n, 0) : "–", `${ms.signalled || 0} of ${ms.n}`),
   ].join("");
   const mv = d.movers;
-  $("moverTitle").textContent = mv && mv.day ? `Latest review: 24h to ${dt(mv.end_ts)} (${mv.n_grinders} of ${mv.n_coins} coins)` : "Latest review";
+  $("moverTitle").textContent = mv && mv.day ? `Daily review: 24h to ${dt(mv.end_ts)} — did LTS catch the ${mv.n_grinders} steady movers?` : "Daily review: did LTS catch the day's steady movers?";
   const flagCell = m => m.flagged_ts ? `${dt(m.flagged_ts)} <span class="muted">(${esc(m.flagged_kind)})</span>` : '<span class="muted">not flagged</span>';
   const leftCell = m => m.flagged_left == null ? "–" : pct(m.flagged_left, 0);
   const sigCell = m => m.signal_id ? `#S${m.signal_id} ${statusChip(m.signal_status)}` : "–";
@@ -214,6 +225,53 @@ function render(d) {
   table($("moverHistory"), [["Day"],["Coin"],["Move 24h","num"],["R²","num"],["Flagged"],["Move left","num"],["Signal"]],
     (d.movers_history || []).map(m => [esc(m.day), `<b>${esc(m.symbol)}</b>`, signed(m.ret24 * 100, 1, "%"), num(m.r2, 2),
       flagCell(m), leftCell(m), sigCell(m)]), "No history yet.");
+
+  // ---- grinders tab ----
+  const gl = d.grindlab || {}, gs = (d.stats || {}).grind || {n: 0};
+  const live = d.grind_live || [];
+  const now12 = live.filter(r => d.now - r.ts <= 12 * 3600000);
+  $("grindTiles").innerHTML = [
+    statTile("Grind paper trades (all)", gs),
+    tile("Grinding now (12h)", now12.length, `${now12.filter(r => r.decision === "sent").length} paper-traded`),
+    tile("Steady grinds per day", gl.episodes_per_day == null ? "–" : num(gl.episodes_per_day, 0), gl.days ? `over the last ${num(gl.days, 0)} days` : "study pending"),
+    tile("Early grinds that kept going", gl.base_success == null ? "–" : pct(gl.base_success, 0), gl.target ? `+${pct(gl.target, 0)} before −${pct(gl.stop, 0)} within ${gl.horizon_h}h` : ""),
+  ].join("");
+  const traitList = ck => { const e = Object.entries(ck || {}); const yes = e.filter(([, v]) => v).map(([k]) => esc(k)); const no = e.filter(([, v]) => !v).map(([k]) => esc(k));
+    return `<span title="Missing: ${no.join("; ")}">✓ ${yes.join(" · ") || "none"}</span>`; };
+  table($("grindLive"), [["Time"],["Coin"],["Side"],["6h","num"],["24h","num"],["Traits","num"],["Model","num"],["Decision"],["Traits present"]],
+    live.map(r => [dt(r.ts), `<b>${esc(r.symbol)}</b>${r.catalyst ? ' <span class="chip warn">⚡ news</span>' : ""}`, side(r.side),
+      signed((r.factors.r_6h || 0) * 100, 1, "%"), signed((r.factors.r_24h || 0) * 100, 1, "%"),
+      `<b>${r.score}</b>/${Object.keys(r.checks || {}).length}`, r.model_p == null ? "–" : pct(r.model_p, 0),
+      r.decision === "sent" ? '<span class="chip accent">paper trade</span>' : (r.decision ? esc(r.decision.replace("skipped:", "").replaceAll("_", " ")) : "–"),
+      `<div style="white-space:normal;min-width:360px;max-width:560px;font-size:12px">${traitList(r.checks)}</div>`]), "No early grinds detected in the last 48 hours yet (checked every hour).");
+  const gsig = (d.signals || []).filter(s => s.kind === "grind");
+  table($("grindTrades"), sigHead, gsig.map(sigRow), "No grind paper trades yet.");
+  if (gl.traits) {
+    const held = gl.traits.filter(t => t.held).length;
+    const cat = (gl.catalyst || {}).short || {};
+    $("labTitle").textContent = `What successful grinders have in common (study of ${num(gl.days, 0)} days, rebuilt ${dt(gl.built_ts)})`;
+    $("labSummary").innerHTML = `${(gl.n_episodes || 0).toLocaleString()} steady grinds (${gl.episodes_up} up, ${gl.episodes_down} down) and
+      ${(gl.n_decisions || 0).toLocaleString()} moments where one was grinding early enough to enter. ${pct(gl.base_success, 0)} of those kept going.
+      <b>${held} of ${gl.traits.length} traits held up on later days the study had not seen.</b>
+      Honest caveat: these traits mostly predict that a coin will move <i>a lot</i> — the typical worst move grows as much as the best move — so on their own they
+      have not been profitable after fees. The one directional pattern: down-grinds in the week after an Upbit listing or Binance futures launch
+      (${cat.n || 0} cases on ${cat.coins || 0} coins, ${pct(cat.success, 0)} kept going, ${cat["x_0.06_0.03"] == null ? "–" : signed(cat["x_0.06_0.03"] * 100, 2, "%")} per trade) — promising but still a small sample.`;
+    const p0 = v => v == null ? "–" : pct(v, 0);
+    table($("labTraits"), [["Trait"],["Kept going: with","num"],["without","num"],["Unseen days: with","num"],["without","num"],["Cases (unseen)","num"],["Held up?"]],
+      gl.traits.map(t => [esc(t.trait), p0(t.train_with), p0(t.train_without), `<b>${p0(t.test_with)}</b>`, p0(t.test_without), t.n_test_with,
+        t.held ? '<span class="chip good">held</span>' : '<span class="chip">faded</span>']), "");
+    table($("labScore"), [["Traits","num"],["Cases","num"],["Kept going","num"],["Typical best move","num"],["Typical worst move","num"],["+6%/−3%","num"],["+10%/−5%","num"],["Trailing","num"]],
+      (gl.by_score || []).map(r => [r.score, r.n, p0(r.success), p0(r.best_med), p0(r.worst_med),
+        r["x_0.06_0.03"] == null ? "–" : signed(r["x_0.06_0.03"] * 100, 2, "%"), r["x_0.1_0.05"] == null ? "–" : signed(r["x_0.1_0.05"] * 100, 2, "%"),
+        r.x_trail == null ? "–" : signed(r.x_trail * 100, 2, "%")]), "");
+    table($("labFactors"), [["Factor"],["Kept going: top fifth","num"],["bottom fifth","num"],["Periods agreeing"],["Typical value: winners","num"],["lookalikes","num"]],
+      (gl.stable_factors || []).map(r => [esc(r.factor), p0(r.success_high), p0(r.success_low), esc(r.folds_agree), num(r.median_success, 3), num(r.median_fail, 3)]), "None yet.");
+  } else {
+    $("labSummary").textContent = "The first study runs during set-up and then every night.";
+  }
+  table($("grindEpisodes"), [["Started"],["Coin"],["Direction"],["Move","num"],["Hours","num"],["Sector"]],
+    (d.grind_episodes || []).map(e => [dt(e.start), `<b>${esc(e.symbol)}</b>`, side(e.side), signed(e.side * e.move * 100, 1, "%"), e.hours, esc(e.tags || "")]),
+    "The catalogue is rebuilt every night.");
 
   const item = (k, v) => `<div><b>${k}</b>${v}</div>`;
   const dd = d.data || {};
@@ -243,7 +301,7 @@ $("loginForm").addEventListener("submit", async e => {
 });
 document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => {
   document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
-  ["signals", "candidates", "learning", "movers", "system"].forEach(t => $("tab-" + t).hidden = t !== b.dataset.tab);
+  ["signals", "candidates", "learning", "grinders", "system"].forEach(t => $("tab-" + t).hidden = t !== b.dataset.tab);
 }));
 load(); setInterval(load, 30000);
 </script>

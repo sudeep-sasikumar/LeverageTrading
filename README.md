@@ -92,6 +92,12 @@ No host ports are opened; the dashboard is reached only through Traefik. On this
   last month it broke even after fees overall, with short grinds positive and long grinds negative
   ([docs/DESIGN.md §12](docs/DESIGN.md)).
 
+**Grind lab** (added 17 Nov): every night LTS re-studies ~4 months of steady grinds and what the ones that kept going
+had in common versus lookalikes that fizzled. It looks at multi-timeframe support/resistance, room to run, volume and flow,
+funding, open interest, sector, listing age and exchange news. Every hour it scores coins grinding right now against those
+traits and paper-trades the best. Everything is on the dashboard's **Grinders** tab; findings are in
+[docs/DESIGN.md §13](docs/DESIGN.md).
+
 Every day the bot also reviews the last 24h's steady movers: which coins ground 10%+ one way, what their volume,
 open interest and positioning looked like, and whether LTS caught them in time. This is in the daily Telegram report,
 on the dashboard's *Daily movers* tab, and via `python -m lts movers`.

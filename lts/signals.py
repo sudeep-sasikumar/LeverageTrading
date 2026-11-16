@@ -10,7 +10,7 @@ from . import BAR_MS
 from .config import Config
 from .db import DB
 from .candidates import grind_rank
-from .labels import costs, plan_grind, plan_trade
+from .labels import costs, plan_from_stop, plan_grind, plan_trade
 from .learner import expected_r, predict
 from .scoring import reasons, rule_score
 from .telegram import esc
@@ -91,6 +91,15 @@ class SignalEngine:
     # ---- scoring -------------------------------------------------------
     def score(self, cand: dict, bundle: dict | None) -> None:
         feat = cand["features"]
+        if cand.get("kind") == "grindlab":
+            # grind-lab paper trade: the study's own plan (-3% stop, +6% target, 24h), ranked by the checklist
+            gl = self.cfg.grindlab
+            cand["plan"] = plan_from_stop(self.cfg.trade, gl.stop, gl.target / gl.stop, self.cfg.risk.risk_per_trade,
+                                          gl.horizon_hours * 12)
+            cand["rule_score"] = float(cand["score_n"])
+            cand["score"] = 100.0 * cand.get("catalyst", 0) + cand["score_n"] + (cand.get("model_p") or 0.0)
+            cand["p"] = cand["ev_r"] = None
+            return
         if cand.get("kind") == "grind":
             # separate research track: own trade plan, no model yet (the model is trained on momentum candidates)
             cand["rule_score"] = cand["score"] = grind_rank(feat)
@@ -107,6 +116,9 @@ class SignalEngine:
     def _grade(self, cand: dict, bundle: dict | None, state: RiskState, now_ms: int) -> str | None:
         """A / B = validated model (real signals). P = paper: no validated model yet."""
         sc = self.cfg.signal
+        if cand.get("kind") == "grindlab":
+            ok = cand.get("catalyst") or cand["score_n"] >= self.cfg.grindlab.min_score
+            return ("G" if self.cfg.grind.live else "P") if ok else None
         if cand.get("kind") == "grind":
             g = self.cfg.grind
             return ("G" if g.live else "P") if cand["score"] >= g.min_rank else None
@@ -129,12 +141,12 @@ class SignalEngine:
         for c in cands:
             self.score(c, bundle)
         order = sorted(cands, key=lambda c: (c["score"] if c["score"] is not None else c["rule_score"]), reverse=True)
-        order.sort(key=lambda c: c.get("kind") == "grind")       # momentum first; stable within each track
+        order.sort(key=lambda c: c.get("kind") in ("grind", "grindlab"))   # momentum first; stable within a track
         paused = bool(self.db.get("paused", False))
         sent = []
         for c in order:
             # re-read every time: a signal sent this cycle changes it
-            state = RiskState(cfg, self.db, now_ms, "grind" if c.get("kind") == "grind" else "momentum")
+            state = RiskState(cfg, self.db, now_ms, "grind" if c.get("kind") in ("grind", "grindlab") else "momentum")
             feat = c["features"]
             reason = None
             if paused:
@@ -143,6 +155,8 @@ class SignalEngine:
                 reason = "not_on_weex"
             elif c["plan"] is None:
                 reason = "too_volatile"
+            elif c.get("kind") == "grind" and not cfg.grind.signals_from_5m:
+                reason = "logged_only"                    # grind paper trades come from the hourly grind lab
             else:
                 grade = self._grade(c, bundle, state, now_ms)
                 if grade is None:
@@ -197,8 +211,9 @@ class SignalEngine:
         if prec is not None:
             sl, tp = round(sl, int(prec)), round(tp, int(prec))
         expires = now_ms + plan.get("horizon_bars", self.cfg.trade.horizon_bars) * BAR_MS
-        kind = "grind" if c.get("kind") == "grind" else "momentum"
-        version = "grind-rules" if kind == "grind" else (bundle["version"] if bundle else "rules")
+        kind = "grind" if c.get("kind") in ("grind", "grindlab") else "momentum"
+        version = {"grind": "grind-rules", "grindlab": "grind-lab"}.get(c.get("kind")) or \
+            (bundle["version"] if bundle else "rules")
         cur = self.db.execute(
             """INSERT INTO signals(candidate_id,symbol,side,ts,grade,entry,sl,tp,sl_pct,tp_pct,leverage,margin_frac,
                                    p,ev_r,model_version,kind,expires_ts,status,last_checked_ts)
@@ -216,10 +231,13 @@ class SignalEngine:
         pos, neg = reasons(c["features"])
         f = c["features"]
         grade_note = {"A": "Grade A", "B": "Grade B (best of day, lower conviction)", "P": "PAPER", "G": "Grind"}
-        grind = c.get("kind") == "grind"
+        grind = c.get("kind") in ("grind", "grindlab")
         title = f"{icon} <b>{word} {esc(sig['symbol'])}</b> · {grade_note.get(sig['grade'], sig['grade'])}"
         lines = [title + (" · steady-trend (grind) setup" if grind else "")]
-        if grind and sig["grade"] == "P":
+        if c.get("kind") == "grindlab" and sig["grade"] == "P":
+            lines.append("📝 <b>Grind lab paper trade — testing the traits of successful grinders forward. "
+                         "No proven edge yet. Track it, do not trade it.</b>")
+        elif grind and sig["grade"] == "P":
             lines.append("📝 <b>Paper research signal — the grind setup has no proven edge yet "
                          "(break-even over the last month after fees). Track it, do not trade it.</b>")
         elif sig["grade"] == "P":
@@ -242,6 +260,18 @@ class SignalEngine:
                   f"({utc(sig['expires_ts'] + cfg.telegram.local_utc_offset_minutes * 60_000, '%H:%M')} "
                   f"{esc(cfg.telegram.local_tz_label)}) if neither level is hit",
                   f"Skip if price is already beyond <code>{fmt_price(chase, prec)}</code>", ""]
+        if c.get("kind") == "grindlab":
+            ck = c.get("checks") or {}
+            if c.get("catalyst"):
+                lines.append("⚡ News catalyst: down-grind in the week after an Upbit listing / Binance futures launch "
+                             "(the one directional pattern the study found)")
+            lines.append(f"Successful-grinder traits: {sum(ck.values())}/{len(ck)}"
+                         + (f" · model {c['model_p']:.0%}" if c.get("model_p") is not None else ""))
+            lines += [f"  {'✅' if v else '▫️'} {esc(k)}" for k, v in ck.items()]
+            lines.append(f"6h {f.get('r_6h', 0) * 100:+.1f}% · 24h {f.get('r_24h', 0) * 100:+.1f}% · "
+                         f"hold up to {self.cfg.grindlab.horizon_hours}h")
+            lines.append(f"#S{sig['id']}")
+            return "\n".join(lines)
         if grind:
             lines.append(f"Grind: 6h {f.get('r_6h', 0) * 100:+.1f}% · straightness R² {f.get('g_r2_6h', 0):.2f} · "
                          f"{int(f.get('g_hours_with') or 0)}/6 hours with the trend · biggest hour "

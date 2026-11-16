@@ -377,3 +377,107 @@ The grind track stays paper (`grind.live: false`) until its forward record shows
 edge. The bar is at least 30 closed signals averaging +0.1R or better, with t ≥ 2.
 Today it is break-even overall, and its only positive slice, short grinds, depends on
 this month's falling market.
+
+## 13. Grind lab: what successful grinders have in common (16–17 Nov 2026)
+
+Section 12 tested *every* coin showing the grind shape. This section answers the real
+question: among coins that were grinding early enough to enter, what did the ones that
+**kept going** share, compared with **lookalikes that fizzled**? A trait only counts if it
+separates the two groups, not merely if winners have it, and only if the separation holds
+on later days the study did not see.
+
+### Data (`lts/grindlab_data.py`)
+
+- 125 days of hourly bars and full daily history for all 519 Binance perps.
+- 4 months of funding history, plus open interest and long/short ratios for the last
+  30 days (Binance keeps no more).
+- Binance sector tags.
+- 198 coin-specific exchange announcements: Binance listings, futures launches,
+  delistings, monitoring tags and Alpha listings; Upbit listings, caution warnings and
+  delistings.
+- No per-coin general-news feed was available, so general news is not covered.
+
+### Method (`lts/grindlab.py`)
+
+1. **Catalogue:** every 24h window that moved ≥ 10% with R² ≥ 0.6, at least 14 of 24
+   hours the same way and no single hour > 45% of the move. This gave 7,350 steady grinds
+   in 120 days (≈ 61 a day; 3,951 up, 3,399 down; median move 13.6%).
+2. **Entry moments:** an hour close after ≥ 3% in 6h with R² ≥ 0.7, at least 4 of 6 hours
+   the same way, no hour > 50% of it, and $5M+ daily volume. This gave 16,554 early-grind
+   moments, one per coin and side per 12h.
+3. **Outcome:** success = +6% before −3% within 24h. **25.7%** succeeded; the rest are the
+   lookalikes. Seven alternative exits and a trailing stop are recorded too.
+4. **~100 factors at the entry moment**, all using only data available then:
+   - multi-timeframe support/resistance (1h/2-day, 4h/7-day, 30-day, 90-day, 52-week,
+     all-time);
+   - daily pivot levels and the room to the next one;
+   - compression before the move;
+   - volume and trade-count surges, taker flow, and volume on with-trend hours;
+   - funding, open interest and positioning;
+   - BTC and market moves, and sector peers;
+   - sector tags, listing age, size;
+   - exchange announcements in the past week.
+5. **Validation:** factors are compared within volatility bands, then a factor checklist and
+   a model are fitted on the first 60% of days and judged on the last 40%.
+
+### Findings
+
+**Traits of successful grinders that held up on unseen days** (success with vs without
+the trait on the held-out 40%):
+
+| Trait | With | Without |
+|---|---|---|
+| Down-grind in the week after an Upbit listing or Binance futures launch | 43% | 24% (n = 61) |
+| No daily support/resistance within 10% ahead | 28% | 23% |
+| Breaking out of / at the edge of its 30-day range | 27% | 23% |
+| BTC's 7-day trend in the same direction | 26% | 22% |
+| The coin's own week in the same direction | 26% | 22% |
+| Coin-specific move (the market *not* moving the same way in the last 6h) | 26% | 23% |
+| Younger listing | 26% | 23% |
+| Stronger than the market over 24h | 25% | 23% |
+
+**Faded on unseen days:** sector peers moving the same way, funding not against the trade,
+light taker flow.
+
+**The important caveat.** The more of these traits an early grind has, the further it
+moves, *in both directions*. With 9+ traits, half reached +6% and about a third reached
++10% within 24h, but the typical adverse move grew just as much. So the traits mainly
+predict **how much** a coin will move, not **which way**.
+- Every exit tested (target/stop pairs from +3/−3 to +12/−4, and a trailing stop) lost a
+  little after fees, at every trait count.
+- A model combining all factors raised success on unseen days only from 25% to 28%.
+
+**The one directional pattern:** in the week after an **Upbit listing** or a **Binance
+futures launch**, early *down*-grinds succeeded about 41% of the time and made about
++0.6% per trade after fees (138 cases on 29 coins, t ≈ 1.6). Up-grinds after the same news
+lost money. It is a plausible "sell the news" effect but not yet statistically proven.
+
+Other facts:
+- Steady grinds are ordinary: most liquid coins have one in any given week.
+- Only 2.6% of grinds had an exchange announcement in the week before.
+- Coins tagged Alpha are over-represented (1.36×).
+- Grind start times are spread evenly over the day.
+
+### What runs in production
+
+- **Nightly (01:10 UTC):** refresh history and announcements, rebuild the catalogue and
+  the study, refit the model and the checklist thresholds, store the report, and send a
+  short Telegram summary. The definitions update as data accumulates.
+- **Hourly (3 min past):** fetch the latest hourly bars, detect early grinds, score each
+  against the 12-trait checklist and the model, and record them in `grind_live`.
+- **Paper trades:**
+  - which ones: news-catalyst down-grinds first, then early grinds with ≥ 8 of 12 traits;
+  - plan: the study's own (−3% stop, +6% target, 24h);
+  - limits: at most 3 a day and 2 open, ≥ 4h apart;
+  - the earlier 5-minute grind trigger now only logs candidates.
+- **Dashboard → Grinders tab:**
+  - coins grinding right now, with their traits;
+  - the grind paper trades;
+  - the study ("what successful grinders have in common", trait by trait with held-out
+    results, the trait-count table, factors stable in every period);
+  - the last 7 days of steady grinds;
+  - the daily review of whether LTS caught them.
+
+Paper trades become real-money signals only when the forward record shows an edge (≥ 30
+closed trades averaging ≥ +0.1R with t ≥ 2). The news-catalyst shorts are the first
+candidate to watch.

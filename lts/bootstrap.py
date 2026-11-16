@@ -91,6 +91,14 @@ def bootstrap(cfg: Config, db: DB) -> None:
     if not db.query("SELECT 1 FROM models LIMIT 1"):
         db.set("phase", "train")
         log.info("\n%s", train_and_maybe_promote(cfg, db)["summary"])
+    if cfg.grindlab.enabled and not db.get("bootstrap_grindlab_done"):
+        from .grindlab import nightly
+        db.set("phase", "grindlab")
+        log.info("grind lab: downloading ~4 months of hourly/daily history and running the first study (~20 min)")
+        rep = nightly(cfg, db)
+        db.set("last_grindlab_day", time.strftime("%Y-%m-%d", time.gmtime()))
+        db.set("bootstrap_grindlab_done", True)
+        log.info("grind lab: %s early-grind moments studied", rep.get("n_decisions"))
 
 
 def main(cfg: Config, db: DB) -> None:
