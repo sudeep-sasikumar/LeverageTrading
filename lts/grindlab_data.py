@@ -161,11 +161,20 @@ def _kst_to_utc_ms(s: str) -> int:
 
 # ---- price history ----------------------------------------------------------
 async def _bars(db: DB, binance: Binance, table: str, interval: str, step: int, sym: str, start: int, now: int) -> None:
-    last = db.query(f"SELECT MAX(ts) AS m FROM {table} WHERE symbol=?", (sym,))[0]["m"]
-    cur = max(start, (last or 0) + step)
-    while cur < now - step:
+    """Fill [start, now): backfill before the earliest stored bar if needed, then extend after the latest."""
+    row = db.query(f"SELECT MIN(ts) AS a, MAX(ts) AS m FROM {table} WHERE symbol=?", (sym,))[0]
+    first, last = row["a"], row["m"]
+    if first is not None and first > start + step:
+        await _fetch_range(db, binance, table, interval, step, sym, start, first)
+    await _fetch_range(db, binance, table, interval, step, sym, max(start, (last or 0) + step), now)
+
+
+async def _fetch_range(db: DB, binance: Binance, table: str, interval: str, step: int, sym: str, cur: int,
+                       stop: int) -> None:
+    now = int(time.time() * 1000)
+    while cur < min(stop, now - step):
         rows = await binance.klines(sym, interval, start=cur, limit=1500)
-        rows = [r for r in rows if r[0] + step <= now]                     # closed bars only
+        rows = [r for r in rows if r[0] + step <= now and r[0] < stop]      # closed bars, inside the range
         if not rows:
             break
         db.insert_rows(table, ("symbol", "ts", "o", "h", "l", "c", "v", "qv", "trades", "tbv", "tbqv"),

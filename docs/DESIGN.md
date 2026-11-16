@@ -481,3 +481,66 @@ Other facts:
 Paper trades become real-money signals only when the forward record shows an edge (≥ 30
 closed trades averaging ≥ +0.1R with t ≥ 2). The news-catalyst shorts are the first
 candidate to watch.
+
+## 14. One-year pattern study (17 Nov 2026)
+
+**Question:** do classic chart or smart-money patterns carry a tradable edge on these perps?
+Tested: support/resistance, momentum, liquidity sweeps, order blocks, fair value gaps,
+structure breaks, and more.
+
+**Data:** 400 days of hourly bars for 518 coins (from 13 Oct 2025), full daily history,
+1 year of funding, and 511 Binance/Upbit announcements. Code: `lts/patterns.py`,
+`lts/pattern_study.py`, `lts/sweeps.py`.
+
+**Discipline, fixed before any result was seen:**
+- **Two stages:** discovery on the first ~9 months, then a single confirmation test on the
+  last 120 days with everything frozen.
+- **Day-clustered statistics.**
+- **Real Weex fees:** taker plus slippage for market orders and stops, maker for limit
+  entries and targets.
+- **Structural stops:** at the pattern's invalidation point.
+- **A discovery pass required all of:** at least 150 trades, at least +0.10R per trade after
+  fees, t ≥ 3, and at least 60% of months positive.
+
+### Results
+
+1. **15 pattern families, 32 variants × 2 sides × 6 exits = 491,097 simulated trades.
+   None passed discovery.**
+   - Families: 20/55-day breakouts with level or ATR stops; breakout retests; 52-week
+     highs/lows; multi-touch daily support/resistance bounces; liquidity sweeps of the
+     24h, 7-day, previous-day and equal highs/lows, with and without volume; 4h sweeps;
+     1h/4h order blocks and fair value gaps after a displacement plus break of structure;
+     4h change of character; trend pullbacks; volatility-squeeze breakouts; volume
+     climaxes; funding extremes; grind continuation.
+   - The best was +0.007R per trade, t = 1.8.
+2. **The year was a deep altcoin bear market.** The median liquid altcoin fell **68%**. Long
+   setups lost in almost every family and every month (for example, trend-pullback longs
+   −0.30R, t = −17). Their short mirrors only broke even, because fees eat the drift.
+3. **A regime filter didn't help.** Trading each pattern only in the direction of the
+   altcoin index's 50-day trend: zero passed. The plain regime-direction basket also lost
+   after daily costs.
+4. **Liquidity sweeps carry real timing information.** Against matched random-time trades
+   (same coin, ±3 days, same stop size and exit), sweeps did better by +0.19R to +0.37R
+   before fees, with t = 3–10 in **both** periods and on **both** sides:
+   - shorting a sweep of the 24h high: +0.30R discovery / +0.27R confirmation;
+   - with a volume spike: +0.33R / +0.37R;
+   - longing a sweep of the 24h low: +0.19R / +0.21R.
+5. **But the sweep is not a tradable edge at Weex fees.** A pre-declared grid of 48 ways to
+   trade it (market or limit entry; wick or wide stop; 2R, 3R or opposite-liquidity target;
+   with or without a volume filter) produced zero passes.
+   - The best variant (short, market entry, stop 1 ATR beyond the wick, 3R) made +0.035R
+     in discovery and **−0.013R on the unseen months**.
+   - One such trade a day at 1% risk: account −25%, worst drawdown −35% over those months.
+   - Leverage (3x / 5x / 10x) scales each win and loss (typical +20% / +33% / +66% vs −11% /
+     −18% / −37% of margin) but not the near-zero expectancy.
+
+### Conclusion
+
+With price, volume, funding, sector and exchange-announcement data, none of the patterns
+tested (support/resistance, momentum, sweeps, order blocks, fair value gaps, structure
+breaks) has a robust edge after fees on these coins over the past year. The sweep's
+information is real but smaller than trading costs plus the losses built into bracket trades
+on volatile altcoins. Nothing from this study was added to live signals.
+
+The data most directly behind sweeps and stop hunts — liquidations and order-book depth —
+has no free history, so it has to be collected going forward before it can be studied.
