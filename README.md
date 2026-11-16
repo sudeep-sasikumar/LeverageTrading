@@ -84,6 +84,18 @@ redeploys; a redeploy pulls the newest image and resumes within a minute.
 No host ports are opened; the dashboard is reached only through Traefik. On this PC:
 `python -m lts dashboard`, then http://127.0.0.1:8020 (no login on localhost).
 
+## Two setups
+
+- **Momentum** (the original): a sharp move with volume that is still intact. Model-ranked; paper until validated.
+- **Grind** (steady trend, added 16 Nov): a coin that has moved steadily one way for hours without one candle doing
+  the work. It has a wider stop (2.5 × hourly ATR), a 1:1 target, holds up to 24h, and is **paper-only**: over the
+  last month it broke even after fees overall, with short grinds positive and long grinds negative
+  ([docs/DESIGN.md §12](docs/DESIGN.md)).
+
+Every day the bot also reviews the last 24h's steady movers: which coins ground 10%+ one way, what their volume,
+open interest and positioning looked like, and whether LTS caught them in time. This is in the daily Telegram report,
+on the dashboard's *Daily movers* tab, and via `python -m lts movers`.
+
 ## Telegram
 
 Signals, exits (target / stop / time stop), a daily report, the nightly learning report

@@ -79,6 +79,7 @@ button.primary{background:var(--accent);color:#fff;border-color:transparent;font
     <button data-tab="signals" class="on">Signals</button>
     <button data-tab="candidates">Candidates scanned</button>
     <button data-tab="learning">Model &amp; learning</button>
+    <button data-tab="movers">Daily movers</button>
     <button data-tab="system">System</button>
   </div>
 
@@ -93,6 +94,14 @@ button.primary{background:var(--accent);color:#fff;border-color:transparent;font
   <section id="tab-learning" hidden>
     <h2>Model in use</h2><div class="panel kv" id="model"></div>
     <h2>Training history</h2><div class="panel scroll" id="models"></div>
+  </section>
+  <section id="tab-movers" hidden>
+    <p class="muted">Each day LTS looks back at the coins that moved 10%+ in a steady line (straight path, most
+    hours moving the same way, no single candle doing the work), records what their data looked like, and checks
+    whether it flagged them in time. This is the record used to judge and improve the grind setup.</p>
+    <div class="tiles" id="moverTiles"></div>
+    <h2 id="moverTitle">Latest review</h2><div class="panel scroll" id="moverLatest"></div>
+    <h2>History</h2><div class="panel scroll" id="moverHistory"></div>
   </section>
   <section id="tab-system" hidden>
     <h2>Health</h2><div class="panel kv" id="system"></div>
@@ -152,11 +161,12 @@ function render(d) {
     tile("Signals today", d.sent_today ?? 0, `${(d.open || []).length} open now`),
     statTile("Today", st.today), statTile("Last 7 days", st.d7), statTile("Last 30 days", st.d30),
     statTile("Paper signals (all)", st.paper), statTile("Real signals (all)", st.real),
+    statTile("Momentum setup (all)", st.momentum), statTile("Grind setup (all, paper)", st.grind),
     tile("Candidates scanned 24h", d.data ? d.data.candidates_24h : "–", d.data ? `${d.data.labelled.toLocaleString()} labelled in total` : ""),
   ].join("");
 
   const sigHead = [["Time"],["Coin"],["Side"],["Type"],["Entry","num"],["Stop","num"],["Target","num"],["Lev","num"],["Status"],["Result","num"],["On margin","num"],["Closed"]];
-  const sigRow = s => [dt(s.ts), `<b>${esc(s.symbol)}</b>`, side(s.side), grade(s.grade), price(s.entry),
+  const sigRow = s => [dt(s.ts), `<b>${esc(s.symbol)}</b>`, side(s.side), grade(s.grade) + (s.kind === "grind" ? ' <span class="chip">grind</span>' : ""), price(s.entry),
     `${price(s.sl)} <span class="muted">(${pct(s.sl_pct, 2)})</span>`, `${price(s.tp)} <span class="muted">(${pct(s.tp_pct, 2)})</span>`,
     s.leverage + "x", statusChip(s.status), signed(s.ret_r), s.ret_margin == null ? "–" : signed(s.ret_margin * 100, 1, "%"), dt(s.exit_ts)];
   table($("open"), sigHead.slice(0, 9).concat([["Best so far","num"],["Worst so far","num"],["Time stop"]]),
@@ -184,6 +194,26 @@ function render(d) {
   } else $("model").innerHTML = '<div class="empty">No model trained yet.</div>';
   table($("models"), [["Trained"],["Version"],["Status"],["Rows","num"],["Selection skill","num"],["OOS avg","num"],["OOS t","num"],["OOS trades","num"],["Holdout avg","num"]],
     (d.models || []).map(m => [dt(m.trained_ts), esc(m.version), esc(m.status), (m.n_train || 0).toLocaleString(), num(m.xsec_corr, 3), signed(m.oos_avg_r), num(m.oos_t, 1), m.oos_n ?? "–", signed(m.hold_avg_r)]), "No training runs yet.");
+
+  const ms = d.movers_stats || {n: 0};
+  $("moverTiles").innerHTML = [
+    tile("Steady movers recorded (30d)", ms.n, "10%+ in a steady line"),
+    tile("Flagged by LTS in time", ms.n ? pct(ms.flagged / ms.n, 0) : "–", `${ms.flagged || 0} of ${ms.n}`),
+    tile("Move still ahead when flagged", ms.median_left == null ? "–" : pct(ms.median_left, 0), "median"),
+    tile("Got a signal", ms.n ? pct(ms.signalled / ms.n, 0) : "–", `${ms.signalled || 0} of ${ms.n}`),
+  ].join("");
+  const mv = d.movers;
+  $("moverTitle").textContent = mv && mv.day ? `Latest review: 24h to ${dt(mv.end_ts)} (${mv.n_grinders} of ${mv.n_coins} coins)` : "Latest review";
+  const flagCell = m => m.flagged_ts ? `${dt(m.flagged_ts)} <span class="muted">(${esc(m.flagged_kind)})</span>` : '<span class="muted">not flagged</span>';
+  const leftCell = m => m.flagged_left == null ? "–" : pct(m.flagged_left, 0);
+  const sigCell = m => m.signal_id ? `#S${m.signal_id} ${statusChip(m.signal_status)}` : "–";
+  table($("moverLatest"), [["Coin"],["Move 24h","num"],["Straightness R²","num"],["Hours with trend","num"],["Volume vs usual","num"],["Open interest 24h","num"],["Flagged"],["Move left","num"],["Signal"]],
+    (mv && mv.movers || []).map(m => [`<b>${esc(m.symbol)}</b>`, signed(m.ret24 * 100, 1, "%"), num(m.r2, 2), `${m.hours_with}/24`,
+      m.rvol24 == null ? "–" : num(m.rvol24, 1) + "x", m.oi_chg24 == null ? "–" : signed(m.oi_chg24 * m.side * 100, 0, "%"),
+      flagCell(m), leftCell(m), sigCell(m)]), "No review yet. It runs with the daily report.");
+  table($("moverHistory"), [["Day"],["Coin"],["Move 24h","num"],["R²","num"],["Flagged"],["Move left","num"],["Signal"]],
+    (d.movers_history || []).map(m => [esc(m.day), `<b>${esc(m.symbol)}</b>`, signed(m.ret24 * 100, 1, "%"), num(m.r2, 2),
+      flagCell(m), leftCell(m), sigCell(m)]), "No history yet.");
 
   const item = (k, v) => `<div><b>${k}</b>${v}</div>`;
   const dd = d.data || {};
@@ -213,7 +243,7 @@ $("loginForm").addEventListener("submit", async e => {
 });
 document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => {
   document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
-  ["signals", "candidates", "learning", "system"].forEach(t => $("tab-" + t).hidden = t !== b.dataset.tab);
+  ["signals", "candidates", "learning", "movers", "system"].forEach(t => $("tab-" + t).hidden = t !== b.dataset.tab);
 }));
 load(); setInterval(load, 30000);
 </script>

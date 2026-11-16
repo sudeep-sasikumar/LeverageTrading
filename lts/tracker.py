@@ -8,7 +8,7 @@ import time
 from . import BAR_MS
 from .config import Config
 from .db import DB
-from .labels import label_path
+from .labels import label_grind, label_path
 from .signals import close_signal, exit_message
 
 log = logging.getLogger("lts.tracker")
@@ -65,14 +65,18 @@ async def track_open_signals(cfg: Config, db: DB, binance, weex, notifier) -> No
 def label_matured(cfg: Config, db: DB) -> int:
     """Label live candidates whose full horizon is now in the kline store."""
     tc = cfg.trade
-    max_h = max([tc.horizon_bars] + list(tc.grid_horizon))
+    mom_h = max([tc.horizon_bars] + list(tc.grid_horizon))
     last = db.last_kline_ts()
     now = int(time.time() * 1000)
     done = 0
-    for r in db.query("SELECT id, symbol, ts, side, atr_pct, ref_price FROM candidates "
+    for r in db.query("SELECT id, symbol, ts, side, atr_pct, ref_price, kind FROM candidates "
                       "WHERE labeled_ts IS NULL AND ts<=?",
-                      (now - max_h * BAR_MS,)):
+                      (now - min(mom_h, cfg.grind.horizon_bars) * BAR_MS,)):
         sym, ts = r["symbol"], r["ts"]
+        grind = r["kind"] == "grind"
+        max_h = cfg.grind.horizon_bars if grind else mom_h
+        if now - ts < max_h * BAR_MS:
+            continue
         if last.get(sym, 0) < ts + (max_h - 1) * BAR_MS:
             if now - ts > (max_h + 600) * BAR_MS:            # data never arrived: give up on this row
                 db.execute("UPDATE candidates SET labeled_ts=?, outcome='nodata' WHERE id=?", (now, r["id"]))
@@ -87,7 +91,10 @@ def label_matured(cfg: Config, db: DB) -> int:
             import numpy as np
             pad = max_h - len(k)
             o, h, l, c = (np.concatenate([a, np.full(pad, c[-1])]) for a in (o, h, l, c))
-        lab = label_path(tc, r["side"], r["atr_pct"], o, h, l, c, ref_price=r["ref_price"])
+        if grind:
+            lab = label_grind(tc, cfg.grind, r["side"], r["atr_pct"], o, h, l, c, ref_price=r["ref_price"])
+        else:
+            lab = label_path(tc, r["side"], r["atr_pct"], o, h, l, c, ref_price=r["ref_price"])
         if lab is None:
             db.execute("UPDATE candidates SET labeled_ts=?, outcome='nodata' WHERE id=?", (now, r["id"]))
             continue

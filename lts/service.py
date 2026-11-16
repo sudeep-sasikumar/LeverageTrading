@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from . import BAR_MS
 from . import features as F
-from .candidates import kind_of, trigger_mask
+from .candidates import grind_mask, kind_of, trigger_mask
 from .collector import Collector, last_closed_bar
 from .config import Config
 from .db import DB
@@ -37,10 +37,13 @@ def scan(cfg: Config, db: DB, bar_ts: int, cache: DatasetCache | None = None) ->
     market, ranks, panels = build_context(ds)
     trig = cfg.trigger
     close_ts = bar_ts + BAR_MS
-    cool_from = close_ts - cfg.trigger.cooldown_bars * BAR_MS
+    gc = cfg.grind
     recent = {(r["symbol"], r["side"]) for r in
-              db.query("SELECT symbol, side FROM candidates WHERE source='live' AND ts>=? AND ts<?",
-                       (cool_from, close_ts))}
+              db.query("SELECT symbol, side FROM candidates WHERE source='live' AND COALESCE(kind,'')!='grind' "
+                       "AND ts>=? AND ts<?", (close_ts - cfg.trigger.cooldown_bars * BAR_MS, close_ts))}
+    recent_grind = {(r["symbol"], r["side"]) for r in
+                    db.query("SELECT symbol, side FROM candidates WHERE source='live' AND kind='grind' "
+                             "AND ts>=? AND ts<?", (close_ts - gc.cooldown_bars * BAR_MS, close_ts))}
     out = []
     for sym, k in ds.klines.items():
         meta = ds.meta.get(sym, {})
@@ -50,18 +53,21 @@ def scan(cfg: Config, db: DB, bar_ts: int, cache: DatasetCache | None = None) ->
         if len(k) < cfg.trigger.min_history_bars or k["qv"].iloc[-288:].sum() < cfg.universe.min_qvol_24h:
             continue
         p = panels[sym].iloc[-1]          # same definitions as the trigger's momentum test
-        if not (abs(p["z_1h"]) >= trig.z_1h or abs(p["z_4h"]) >= trig.z_4h or abs(p["r_24h"]) >= trig.r_24h):
+        momentum_possible = abs(p["z_1h"]) >= trig.z_1h or abs(p["z_4h"]) >= trig.z_4h or abs(p["r_24h"]) >= trig.r_24h
+        grind_possible = gc.enabled and abs(p["r_6h"]) >= gc.min_r6
+        if not (momentum_possible or grind_possible):
             continue
         f = raw_frame(ds, sym, market, ranks)
         last = f.iloc[[-1]]
+        base = {"ts": close_ts, "ref_price": float(k["c"].iloc[-1]), "on_weex": bool(meta.get("on_weex")),
+                "src": meta.get("src"), "price_precision": meta.get("price_precision"), "symbol": sym}
         for side in (1, -1):
-            if (sym, side) in recent or not trigger_mask(last, cfg, side)[0]:
-                continue
-            aligned = F.align(last, side).iloc[0]
-            out.append({"symbol": sym, "side": side, "ts": close_ts, "ref_price": float(k["c"].iloc[-1]),
-                        "atr_pct": float(last["atr_pct"].iloc[0]), "aligned": aligned,
-                        "on_weex": bool(meta.get("on_weex")), "src": meta.get("src"),
-                        "price_precision": meta.get("price_precision")})
+            if (sym, side) not in recent and trigger_mask(last, cfg, side)[0]:
+                out.append(base | {"side": side, "kind": None, "atr_pct": float(last["atr_pct"].iloc[0]),
+                                   "aligned": F.align(last, side).iloc[0]})
+            if (sym, side) not in recent_grind and grind_mask(last, cfg, side)[0]:
+                out.append(base | {"side": side, "kind": "grind", "atr_pct": float(last["atr_1h"].iloc[0]),
+                                   "aligned": F.align(last, side).iloc[0]})
     return out
 
 
@@ -98,7 +104,7 @@ def store_candidates(db: DB, cands: list[dict], bundle: dict | None) -> None:
             """INSERT OR IGNORE INTO candidates(symbol, ts, side, kind, source, ref_price, atr_pct, sl_pct, features,
                                                 rule_score, model_p, model_version, decision)
                VALUES(?,?,?,?,'live',?,?,?,?,?,?,?,?)""",
-            (c["symbol"], c["ts"], c["side"], kind_of(c["features"]), c["ref_price"], c["atr_pct"],
+            (c["symbol"], c["ts"], c["side"], c.get("kind") or kind_of(c["features"]), c["ref_price"], c["atr_pct"],
              (c.get("plan") or {}).get("sl_pct"), c["features_json"], c.get("rule_score"), c.get("p"),
              bundle["version"] if bundle else None, c.get("decision")))
         c["id"] = cur.lastrowid
@@ -220,9 +226,26 @@ class Service:
                 if last_report_day != day and (now.hour, now.minute) >= (tc.report_utc_hour, tc.report_utc_minute):
                     last_report_day = day
                     self.db.set("last_report_day", day)
-                    await self.tg.send(daily_report_text(self.cfg, self.db))
+                    await self.daily_report()
             except Exception:
                 log.exception("slow loop failed")
+
+    async def daily_report(self) -> None:
+        from .movers import review, review_text
+
+        def work():
+            own = DB(self.cfg.path(self.cfg.storage.db_path))     # sqlite connections are per-thread
+            try:
+                return review(self.cfg, own)
+            finally:
+                own.close()
+        text = daily_report_text(self.cfg, self.db)
+        try:
+            res = await asyncio.to_thread(work)
+            text += "\n\n" + review_text(res, self.cfg.telegram.local_utc_offset_minutes, self.cfg.telegram.local_tz_label)
+        except Exception:
+            log.exception("daily grinder review failed")
+        await self.tg.send(text)
 
     async def retrain(self) -> None:
         def work():

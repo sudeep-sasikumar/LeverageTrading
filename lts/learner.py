@@ -31,7 +31,8 @@ XSEC_BUCKET_MS = 4 * 3_600_000
 def load_labelled(db: DB) -> pd.DataFrame:
     rows = db.query("""SELECT id, symbol, ts, side, source, label, outcome, ret_r, exit_ts, rule_score, sl_pct,
                               mfe, mae, features FROM candidates
-                       WHERE labeled_ts IS NOT NULL AND label IS NOT NULL ORDER BY ts, id""")
+                       WHERE labeled_ts IS NOT NULL AND label IS NOT NULL AND COALESCE(kind, '') != 'grind'
+                       ORDER BY ts, id""")   # grind candidates use a different trade plan: tracked separately
     if not rows:
         return pd.DataFrame()
     # 'side' is also a model feature, so take it from the feature frame only

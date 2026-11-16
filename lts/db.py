@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS candidates (
     mfe REAL, mae REAL,                -- max favourable / adverse excursion (fraction) within horizon
     grid TEXT,                         -- JSON outcomes for alternative barrier configs
     labeled_ts INTEGER,
-    UNIQUE (symbol, ts, side, source)
+    UNIQUE (symbol, ts, side, source, kind)
 );
 CREATE INDEX IF NOT EXISTS idx_cand_ts ON candidates (ts);
 CREATE INDEX IF NOT EXISTS idx_cand_unlabeled ON candidates (labeled_ts) WHERE labeled_ts IS NULL;
@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS signals (
     margin_frac REAL,
     p REAL, ev_r REAL,
     model_version TEXT,
+    kind TEXT,                         -- momentum / grind
     expires_ts INTEGER,                -- time stop
     status TEXT NOT NULL DEFAULT 'open',   -- open / tp / sl / time / cancelled
     exit_ts INTEGER, exit_price REAL,
@@ -128,8 +129,29 @@ class DB:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA cache_size=-200000")
+        self._migrate()
         self.conn.executescript(SCHEMA)
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        """Bring databases created by earlier versions up to the current schema."""
+        row = self.conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='candidates'").fetchone()
+        if row and "UNIQUE (symbol, ts, side, source)" in row[0]:
+            # a grind and a momentum candidate can fire on the same bar: kind joins the key
+            self.conn.executescript("""
+                ALTER TABLE candidates RENAME TO candidates_v1;
+                DROP INDEX IF EXISTS idx_cand_ts;
+                DROP INDEX IF EXISTS idx_cand_unlabeled;""")
+            self.conn.executescript(SCHEMA)
+            cols = [r[1] for r in self.conn.execute("PRAGMA table_info(candidates_v1)")]
+            self.conn.execute(f"INSERT INTO candidates ({','.join(cols)}) SELECT {','.join(cols)} FROM candidates_v1")
+            self.conn.execute("DROP TABLE candidates_v1")
+            self.conn.commit()
+        cols = [r[1] for r in self.conn.execute("PRAGMA table_info(signals)")]
+        if cols and "kind" not in cols:
+            self.conn.execute("ALTER TABLE signals ADD COLUMN kind TEXT")
+            self.conn.execute("UPDATE signals SET kind='momentum' WHERE kind IS NULL")
+            self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()

@@ -9,10 +9,10 @@ import numpy as np
 
 from . import BAR_MS
 from . import features as F
-from .candidates import apply_cooldown, kind_of, trigger_mask
+from .candidates import apply_cooldown, grind_mask, grind_rank, kind_of, trigger_mask
 from .config import Config
 from .db import DB
-from .labels import label_path
+from .labels import label_grind, label_path
 from .pipeline import features_to_json, raw_frame, streamed_context, symbol_dataset
 from .scoring import rule_score
 
@@ -22,6 +22,36 @@ INSERT = """INSERT OR REPLACE INTO candidates
     (symbol, ts, side, kind, source, ref_price, atr_pct, sl_pct, features, rule_score,
      label, outcome, ret_r, exit_ts, mfe, mae, grid, labeled_ts)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
+
+
+def _grind_rows(cfg: Config, sym: str, f, o, h, l, c, idx, min_ts: int, now: int) -> list[tuple]:
+    """Steady-trend candidates for one symbol, labelled with the grind trade plan."""
+    gc, tc = cfg.grind, cfg.trade
+    if not gc.enabled:
+        return []
+    n = gc.horizon_bars
+    atr1h = f["atr_1h"].to_numpy()
+    rows = []
+    for side in (1, -1):
+        hits = np.flatnonzero(apply_cooldown(grind_mask(f, cfg, side), gc.cooldown_bars))
+        hits = hits[(idx[hits] >= min_ts) & (hits + 1 + n <= len(idx))]
+        if len(hits) == 0:
+            continue
+        aligned = F.align(f.iloc[hits], side)
+        for j, i in enumerate(hits):
+            s = i + 1
+            lab = label_grind(tc, gc, side, atr1h[i], o[s:s + n], h[s:s + n], l[s:s + n], c[s:s + n],
+                              ref_price=float(c[i]))
+            if lab is None:
+                continue
+            feat_json = features_to_json(aligned.iloc[j])
+            fd = json.loads(feat_json)
+            ts = int(idx[i]) + BAR_MS
+            rows.append((sym, ts, side, "grind", "replay", float(c[i]), float(atr1h[i]), lab["sl_pct"],
+                         feat_json, grind_rank(fd), lab["label"], lab["outcome"], lab["ret_r"],
+                         ts + lab["bars"] * BAR_MS, lab["mfe"], lab["mae"],
+                         json.dumps(lab["grid"], separators=(",", ":")), now))
+    return rows
 
 
 def replay(cfg: Config, db: DB, days: float = 0.0, rebuild: bool = True) -> int:
@@ -75,6 +105,7 @@ def replay(cfg: Config, db: DB, days: float = 0.0, rebuild: bool = True) -> int:
                              feat_json, rule_score(fd), lab["label"], lab["outcome"], lab["ret_r"],
                              ts + lab["bars"] * BAR_MS, lab["mfe"], lab["mae"],
                              json.dumps(lab["grid"], separators=(",", ":")), now))
+        rows += _grind_rows(cfg, sym, f, o, h, l, c, idx, min_ts, now)
         if rows:
             db.executemany(INSERT, rows)
             total += len(rows)

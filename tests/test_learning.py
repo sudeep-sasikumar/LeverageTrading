@@ -12,7 +12,7 @@ HOUR = 3_600_000
 T0 = 1_700_000_000_000 // 86_400_000 * 86_400_000
 
 
-def make_db(tmp_path, n=4000, signal=True, seed=0):
+def make_db(tmp_path, n=4000, signal=True, seed=0, days=30):
     """Synthetic labelled candidates over 30 days. `er_1h` carries real signal; `btc_r_24h`
     (a market-level feature) is a pure 'kind of day' effect."""
     rng = np.random.default_rng(seed)
@@ -20,7 +20,7 @@ def make_db(tmp_path, n=4000, signal=True, seed=0):
     names = feature_names()
     rows = []
     for i in range(n):
-        ts = T0 + int(i * 30 * 24 * HOUR / n) // 300_000 * 300_000
+        ts = T0 + int(i * days * 24 * HOUR / n) // 300_000 * 300_000
         day_effect = np.sin(ts / (86_400_000 * 1.7))
         feat = {k: float(rng.normal()) for k in names}
         feat["btc_r_24h"] = float(day_effect)
@@ -69,7 +69,8 @@ def test_strong_backtest_alone_is_not_enough_for_real_signals(tmp_path):
 
 
 def test_real_signal_with_positive_forward_record_is_promoted_then_demoted_when_it_fails(tmp_path):
-    db, cfg = make_db(tmp_path), cfg_for(tmp_path)
+    # signals are capped per day, so the significance gates need enough days of history to have enough trades
+    db, cfg = make_db(tmp_path, n=6000, days=60), cfg_for(tmp_path)
     add_forward_record(db, 24, avg_r=0.3)
     res = train_and_maybe_promote(cfg, db)
     assert res["promoted"], res["summary"]

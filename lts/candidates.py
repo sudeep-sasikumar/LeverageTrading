@@ -28,6 +28,36 @@ def trigger_mask(f: pd.DataFrame, cfg: Config, side: int) -> np.ndarray:
     return mom & participation & intact & tradable & old_enough
 
 
+def grind_mask(f: pd.DataFrame, cfg: Config, side: int) -> np.ndarray:
+    """Bars where a steady-trend ("grind") candidate fires for `side`."""
+    g, u = cfg.grind, cfg.universe
+
+    def a(name: str) -> np.ndarray:
+        return f[name].to_numpy(dtype=np.float64) if name in f else np.full(len(f), np.nan)
+
+    with np.errstate(invalid="ignore"):
+        hours = a("g_up_hours") if side > 0 else a("g_dn_hours")
+        big = a("g_big1h_up") if side > 0 else a("g_big1h_dn")
+        stop = g.sl_atr1h_mult * a("atr_1h")
+        ok = ((side * a("r_6h") >= g.min_r6) & (a("g_r2_6h") >= g.min_r2) & (a("g_er_6h") >= g.min_er)
+              & (hours >= g.min_hours_with) & (big <= g.max_big1h)
+              & (a("qv_24h") >= u.min_qvol_24h) & (stop <= g.max_sl_pct)
+              & (a("bars_seen") >= cfg.trigger.min_history_bars))
+        if g.require_market_aligned:
+            ok &= side * a("mkt_r_24h") > 0
+        age = a("listing_age_days")
+        ok &= np.isnan(age) | (age >= u.min_listing_days)
+    return ok & g.enabled
+
+
+def grind_rank(feat: dict) -> float:
+    """How clean and how big the grind is (aligned features): R^2 x efficiency x min(6h move, 15%)."""
+    def v(name):
+        x = feat.get(name)
+        return 0.0 if x is None or (isinstance(x, float) and np.isnan(x)) else float(x)
+    return v("g_r2_6h") * v("g_er_6h") * min(max(v("r_6h"), 0.0), 0.15)
+
+
 def apply_cooldown(mask: np.ndarray, cooldown: int) -> np.ndarray:
     """Keep the first trigger of each cluster; suppress the next `cooldown` bars."""
     out = np.zeros(len(mask), dtype=bool)

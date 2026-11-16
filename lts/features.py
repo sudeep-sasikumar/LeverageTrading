@@ -20,12 +20,12 @@ from . import BAR_MS
 H, D, W = 12, 288, 2016          # bars per hour / day / week
 STALE_MS = 2 * 3_600_000         # slower series older than this are treated as missing
 
-RET_WINDOWS = [("5m", 1), ("15m", 3), ("30m", 6), ("1h", 12), ("2h", 24), ("4h", 48),
+RET_WINDOWS = [("5m", 1), ("15m", 3), ("30m", 6), ("1h", 12), ("2h", 24), ("4h", 48), ("6h", 72),
                ("8h", 96), ("24h", 288), ("3d", 864)]
 
 # ---- feature alignment tables (raw column -> aligned behaviour) -------------
 DIRECTIONAL = [
-    "r_5m", "r_15m", "r_30m", "r_1h", "r_2h", "r_4h", "r_8h", "r_24h", "r_3d",
+    "r_5m", "r_15m", "r_30m", "r_1h", "r_2h", "r_4h", "r_6h", "r_8h", "r_24h", "r_3d",
     "z_1h", "z_4h", "z_24h", "imb_15m", "imb_1h", "imb_4h", "imb_24h",
     "d_ema20", "d_ema50", "d_ema200", "ema20_slope", "ema_stack", "d_vwap_24h", "d_vwap_4h",
     "clv", "body_frac", "bb_z",
@@ -47,6 +47,9 @@ SWAP = [  # (aligned name for the trade-direction side, aligned name for the oth
     ("new_ext", "new_opp", "new_hi_24h", "new_lo_24h"),
     ("impulse_same_1h", "impulse_opp_1h", "impulse_up_1h", "impulse_dn_1h"),
     ("impulse_same_4h", "impulse_opp_4h", "impulse_up_4h", "impulse_dn_4h"),
+    # steady-trend ("grind") shape: hours of the last 6 moving each way, biggest single hour vs the 6h move
+    ("g_hours_with", "g_hours_against", "g_up_hours", "g_dn_hours"),
+    ("g_big1h", "g_big1h_opp", "g_big1h_up", "g_big1h_dn"),
 ]
 # Features that are the same for every coin at a given moment (up to the side sign). Their
 # effective sample size is the number of DAYS, not candidates, so the learner only admits
@@ -66,6 +69,7 @@ NEUTRAL = [
     "mins_to_funding", "corr_btc_24h", "btc_atr_pct", "btc_vol_ratio", "btc_er_4h",
     "disp_24h", "movers", "rank_rvol", "hour_sin", "hour_cos", "dow", "weekend", "listing_age_log",
     "weex_spread_bps", "weex_log_qv", "book_depth_log",
+    "g_r2_6h", "g_r2_12h", "g_er_6h", "atr_1h",
 ]
 LIVE_ONLY = ["fund_pred", "basis_bps", "book_imb", "weex_dev_bps", "weex_spread_bps", "weex_log_qv",
              "book_depth_log"]
@@ -112,6 +116,37 @@ def _asof(index_close_ts: np.ndarray, src: pd.DataFrame | None, col: str,
     return out
 
 
+def strided_sum(x: np.ndarray, n: int, stride: int) -> np.ndarray:
+    """out[t] = x[t] + x[t-stride] + ... (n terms); NaN until the window is full or contains NaN."""
+    x = np.asarray(x, dtype=np.float64)
+    k = np.zeros((n - 1) * stride + 1)
+    k[::stride] = 1.0
+    out = np.convolve(np.nan_to_num(x), k)[:len(x)]
+    bad = np.convolve(np.isnan(x).astype(float), k)[:len(x)] > 0
+    out[bad] = np.nan
+    out[:len(k) - 1] = np.nan
+    return out
+
+
+def strided_r2(y: np.ndarray, n: int, stride: int) -> np.ndarray:
+    """R^2 of a straight-line fit through the n points y[t], y[t-stride], ... (trend straightness)."""
+    y = np.asarray(y, dtype=np.float64)
+    L = (n - 1) * stride + 1
+    k1 = np.zeros(L); k1[::stride] = 1.0
+    kt = np.zeros(L); kt[::stride] = np.arange(n, dtype=np.float64)
+    sy = np.convolve(y, k1)[:len(y)]
+    syy = np.convolve(y * y, k1)[:len(y)]
+    sty = np.convolve(y, kt)[:len(y)]
+    st, stt = n * (n - 1) / 2.0, (n - 1) * n * (2 * n - 1) / 6.0
+    cov = sty - st * sy / n
+    var_y = syy - sy * sy / n
+    var_t = stt - st * st / n
+    with np.errstate(invalid="ignore", divide="ignore"):
+        r2 = np.where(var_y > 1e-14, cov * cov / (var_t * var_y), np.nan)
+    r2[:L - 1] = np.nan
+    return np.clip(r2, 0.0, 1.0)
+
+
 def _wilder(x: pd.Series, n: int) -> pd.Series:
     return x.ewm(alpha=1.0 / n, adjust=False, min_periods=n).mean()
 
@@ -139,6 +174,7 @@ def panel_inputs(k: pd.DataFrame) -> pd.DataFrame:
     out["r_4h"] = c / c.shift(4 * H) - 1
     out["r_24h"] = c / c.shift(D) - 1
     out["r_3d"] = c / c.shift(3 * D) - 1
+    out["r_6h"] = c / c.shift(72) - 1
     out["rvol_1h"] = qv.rolling(H).sum() / (qv.rolling(W, min_periods=2 * D).mean() * H).shift(H)
     out["qv_24h"] = qv.rolling(D, min_periods=D // 2).sum()
     base = (np.log(c).diff().rolling(W, min_periods=2 * D).std() * math.sqrt(H)).shift(H).replace(0, np.nan)
@@ -290,6 +326,26 @@ def symbol_frame(k: pd.DataFrame, oi: pd.DataFrame | None = None, funding: pd.Da
     else:
         f["listing_age_log"] = np.nan
         f["listing_age_days"] = np.nan
+    # steady-trend ("grind") shape, measured on 15-minute and hourly steps ending at this bar
+    y = (np.log(c) - np.log(c.iloc[0])).to_numpy()
+    f["g_r2_6h"] = strided_r2(y, 24, 3)                    # straightness of the last 6h (24 x 15m)
+    f["g_r2_12h"] = strided_r2(y, 48, 3)
+    d15 = np.abs(np.concatenate([np.full(3, np.nan), y[3:] - y[:-3]]))
+    den = strided_sum(d15, 24, 3)
+    num = np.abs(np.concatenate([np.full(72, np.nan), y[72:] - y[:-72]])) if len(y) > 72 else np.full(len(y), np.nan)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        f["g_er_6h"] = num / den                           # 15m efficiency over 6h
+    d1h = np.concatenate([np.full(12, np.nan), y[12:] - y[:-12]]) if len(y) > 12 else np.full(len(y), np.nan)
+    f["g_up_hours"] = strided_sum((d1h > 0).astype(float), 6, 12)
+    f["g_dn_hours"] = strided_sum((d1h < 0).astype(float), 6, 12)
+    hourly = pd.concat([pd.Series(d1h).shift(12 * j) for j in range(6)], axis=1)
+    r6 = np.abs(np.concatenate([np.full(72, np.nan), y[72:] - y[:-72]])) if len(y) > 72 else np.full(len(y), np.nan)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        f["g_big1h_up"] = hourly.max(axis=1).to_numpy() / r6
+        f["g_big1h_dn"] = (-hourly).max(axis=1).to_numpy() / r6
+    hh, ll, pc = h.rolling(12).max(), l.rolling(12).min(), c.shift(12)
+    tr1h = pd.concat([hh - ll, (hh - pc).abs(), (ll - pc).abs()], axis=1).max(axis=1).to_numpy()
+    f["atr_1h"] = strided_sum(tr1h, 14, 12) / 14.0 / c.to_numpy()
     f["bars_seen"] = np.arange(1, len(f) + 1, dtype=float)
     f["lr"] = lr
     return f.copy()          # defragment after many column inserts

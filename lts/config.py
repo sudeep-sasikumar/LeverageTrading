@@ -56,6 +56,33 @@ class Trade:
 
 
 @dataclass
+class Grind:
+    """Steady-trend ("grind") setup: a coin that has moved steadily one way for hours, without one
+    big candle doing the work. Thresholds come from the 30-day study in docs/DESIGN.md section 12."""
+    enabled: bool = True
+    min_r6: float = 0.04                 # >= 4% move over the last 6h
+    min_r2: float = 0.60                 # straightness of the 6h path (R^2 of 15m closes)
+    min_er: float = 0.25                 # 15m efficiency ratio over 6h
+    min_hours_with: int = 4              # at least 4 of the last 6 hours moved with the trend
+    max_big1h: float = 0.45              # no single hour did more than 45% of the 6h move
+    require_market_aligned: bool = True  # only trade grinds going the same way as the median altcoin (24h)
+    min_rank: float = 0.0                # rank = R^2 x efficiency x min(6h move, 15%). The 31-day replay showed
+                                         # higher ranks did NOT do better, so no cut-off: rank only orders them
+    live: bool = False                   # paper-only until the grind track has a proven forward record
+    sl_atr1h_mult: float = 2.5           # stop = 2.5 x hourly ATR
+    rr: float = 1.0                      # target = 1 x stop
+    horizon_bars: int = 288              # hold up to 24h
+    min_sl_pct: float = 0.015
+    max_sl_pct: float = 0.08
+    cooldown_bars: int = 72              # one grind candidate per coin and side per 6h
+    max_open: int = 2
+    max_per_day: int = 3
+    min_gap_hours: float = 4.0           # spread the day's grind signals out
+    grid_sl_mult: list = field(default_factory=lambda: [1.5, 2.5])
+    grid_rr: list = field(default_factory=lambda: [1.0, 2.0])
+
+
+@dataclass
 class Risk:
     risk_per_trade: float = 0.01         # fraction of account lost if the stop is hit
     max_open: int = 2
@@ -132,6 +159,7 @@ class Config:
     universe: Universe = field(default_factory=Universe)
     trigger: Trigger = field(default_factory=Trigger)
     trade: Trade = field(default_factory=Trade)
+    grind: Grind = field(default_factory=Grind)
     risk: Risk = field(default_factory=Risk)
     signal: Signal = field(default_factory=Signal)
     learn: Learn = field(default_factory=Learn)

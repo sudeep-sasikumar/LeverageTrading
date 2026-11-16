@@ -128,11 +128,13 @@ def snapshot(db_path: Path) -> dict:
         out["model"] = active
         out["mode"] = "live" if active and active["status"] == "champion" else "paper"
 
+        has_kind = "kind" in [r["name"] for r in q("PRAGMA table_info(signals)")]
+        kind_col = "COALESCE(kind,'momentum') AS kind" if has_kind else "'momentum' AS kind"
         cols = ("id, symbol, side, ts, grade, entry, sl, tp, sl_pct, tp_pct, leverage, margin_frac, p, ev_r, "
-                "model_version, expires_ts, status, exit_ts, exit_price, ret_r, ret_margin, mfe, mae")
+                f"model_version, expires_ts, status, exit_ts, exit_price, ret_r, ret_margin, mfe, mae, {kind_col}")
         out["open"] = q(f"SELECT {cols} FROM signals WHERE status='open' ORDER BY ts DESC")
         out["signals"] = q(f"SELECT {cols} FROM signals ORDER BY ts DESC LIMIT 300")
-        closed = q("SELECT grade, status, exit_ts, ret_r, ret_margin FROM signals WHERE status!='open' "
+        closed = q(f"SELECT grade, status, exit_ts, ret_r, ret_margin, {kind_col} FROM signals WHERE status!='open' "
                    "AND ret_r IS NOT NULL ORDER BY exit_ts")
         day0 = now // DAY * DAY
         out["stats"] = {
@@ -142,7 +144,21 @@ def snapshot(db_path: Path) -> dict:
             "all": _stats(closed),
             "paper": _stats([r for r in closed if r["grade"] == "P"]),
             "real": _stats([r for r in closed if r["grade"] != "P"]),
+            "momentum": _stats([r for r in closed if r["kind"] != "grind"]),
+            "grind": _stats([r for r in closed if r["kind"] == "grind"]),
         }
+        out["movers"] = kv.get("movers_latest")
+        if q("SELECT 1 FROM sqlite_master WHERE type='table' AND name='daily_movers'"):
+            hist = q("SELECT day, symbol, side, ret24, r2, hours_with, rvol24, oi_chg24, flagged_ts, flagged_kind, "
+                     "flagged_left, signal_id, signal_status, signal_r FROM daily_movers ORDER BY day DESC, "
+                     "ABS(ret24) * r2 DESC LIMIT 300")
+            out["movers_history"] = hist
+            recent = [h for h in hist if h["day"] >= time.strftime("%Y-%m-%d", time.gmtime(now / 1000 - 30 * 86400))]
+            flagged = [h for h in recent if h["flagged_ts"]]
+            lefts = sorted(h["flagged_left"] for h in flagged if h["flagged_left"] is not None)
+            out["movers_stats"] = {"n": len(recent), "flagged": len(flagged),
+                                   "median_left": lefts[len(lefts) // 2] if lefts else None,
+                                   "signalled": sum(1 for h in recent if h["signal_id"])}
         out["sent_today"] = q("SELECT COUNT(*) c FROM signals WHERE ts>=?", (day0,))[0]["c"]
         out["candidates"] = q("SELECT id, symbol, side, ts, kind, atr_pct, rule_score, model_p, decision, outcome, "
                               "ret_r FROM candidates WHERE source='live' ORDER BY ts DESC, id DESC LIMIT 200")

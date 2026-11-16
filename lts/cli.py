@@ -54,6 +54,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--days", type=float, default=7.0)
     sub.add_parser("telegram-test", help="send a test message to the configured chat")
     p = sub.add_parser("research", help="barrier-grid and base-rate study on labelled candidates")
+    p = sub.add_parser("movers", help="review the last 24h's steady movers and whether LTS caught them")
+    p.add_argument("--no-store", action="store_true", help="print only, do not record")
 
     args = ap.parse_args(argv)
     cfg = load_config(args.config)
@@ -94,6 +96,12 @@ def main(argv: list[str] | None = None) -> None:
         elif args.cmd == "telegram-test":
             from .telegram import Telegram
             asyncio.run(Telegram(cfg).send_once("LTS test message: Telegram is wired up correctly."))
+        elif args.cmd == "movers":
+            import re
+            from .movers import review, review_text
+            text = review_text(review(cfg, db, store=not args.no_store), cfg.telegram.local_utc_offset_minutes,
+                               cfg.telegram.local_tz_label)
+            print(re.sub(r"</?[a-z]+>", "", text))
         elif args.cmd == "research":
             from .research import research_text
             print(research_text(cfg, db))

@@ -298,3 +298,82 @@ sends paper signals, tracks them to exit, and retrains nightly. Real-money grade
 only after the gates in section 9 pass. More days of data are the main thing that can
 change the picture: they are what unlock the regime features and make the significance
 tests meaningful.
+
+## 12. Steady trends ("grinds") — study of 16 Nov 2026
+
+Prompted by the observation that, even on flat days for BTC and ETH, several coins grind
+10–100% one way over a day without a single breakout candle, so a leveraged position
+entered mid-move could take 10% on margin.
+
+### The shape
+
+Measured on the user's examples (AIOT, SOPH, BTW, ZIL down; BLESS, SPACE, CROSS,
+PIEVERSE up) over the 24 hours to 16 Nov 18:35 UTC:
+
+- **Straight path:** R² of the 15-minute log-price path was 0.54–0.97, and 62–75% of
+  hours moved with the trend; no single hour did more than about a third of the move
+  (except AIOT's final crash hour, 48%).
+- **Most of the move came late:** for most examples 70–100% of the 24h move happened
+  *after* the first 6 hours, so it was catchable mid-move in hindsight.
+- **The up-grinders had new money behind them:** volume 13–54× normal and open interest
+  +40% to +100%, while the crowd's long/short ratio fell (shorts leaning against the move).
+  **The down-grinders were quiet:** volume about 1–3× normal.
+- Taker buy/sell imbalance was near zero for all eight; it did not distinguish them.
+
+### Does the shape predict continuation? (31 days, 89,069 coin-hours)
+
+Rule tested: at an hour close, the coin moved ≥ 4% over the last 6h with R² ≥ 0.6,
+15m efficiency ≥ 0.25, ≥ 4 of 6 hours with the trend and no hour > 45% of the move;
+enter on the next bar; stop 2.5 × hourly ATR, 1:1 target, 24h limit, Weex costs.
+
+| Group | Trades | Avg R after costs |
+|---|---|---|
+| All liquid coin-hours (same direction as their last 6h) | 15,246 | −0.065 |
+| Spiky movers (≥ 4%, one hour > 60% of the move) | 3,344 | −0.081 |
+| **Grinders** | 1,983 | **+0.015** |
+| Grinders, shorts | 1,181 | +0.129 (t = 5.4) |
+| Grinders, longs | 802 | −0.154 |
+
+- **Shape matters:** grinders beat other movers in the same direction by about +0.07R,
+  for longs and shorts alike, and spiky movers were the worst group.
+- **Direction dominated:** in a month where the median altcoin fell on most days, short
+  grinds paid and long grinds lost, in both halves of the month. Requiring the grind to
+  go with the broad market did not rescue the longs.
+- **Ranking grinds by smoothness or size did not reliably help:** in the full replay,
+  higher-ranked grinds did slightly worse.
+- **"Trade the side that has been working" is harmful:** gating each side on its own
+  last 3–10 days of grind results gave −0.08R to −0.21R per trade (t ≈ −3 to −7). Grind
+  performance reverses over days, so the system must not chase recent winners.
+
+Live replay of the implemented trigger (market-aligned): 2,132 candidates, 69/day,
+target-first 38.8%, **−0.02R per trade** (shorts +0.09R, t = 3.7; longs −0.23R).
+
+On 16 Nov the grind trigger flagged 3 of the day's 11 steady movers: BLESS with 94% of
+the move still ahead, NIGHT 46%, PIEVERSE 42%. The momentum trigger flagged 5, at
+3–89% left. The misses were mostly blocked by the stop cap (moves too volatile for a
+stop under 8%) or by one hour carrying too much of a 6-hour window.
+
+### What was built
+
+- **Grind features** for every candidate: 6h move, 6h and 12h straightness, 15m
+  efficiency, hours with the trend, biggest-hour share, hourly ATR. They are recorded
+  for momentum candidates too, so the main model can learn from them.
+- **A grind setup as a separate, paper-only track:**
+  - stop 2.5 × hourly ATR (1.5–8%), 1:1 target, up to 24h, leverage chosen for +10% on
+    margin at target;
+  - at most 3 signals a day, 2 open at once, 4h apart, with limits separate from the
+    momentum track;
+  - labelled with its own trade plan and kept out of the momentum model's training set.
+- **The daily grinder review** (`python -m lts movers`, in the daily Telegram report,
+  and on the dashboard's *Daily movers* tab):
+  - finds the last 24h's coins that moved 10%+ in a steady line;
+  - records their volume, open interest, taker flow, funding and positioning;
+  - records whether LTS flagged each one, and how much of the move was still ahead when
+    it did.
+  - These rows accumulate in `daily_movers`: the growing library used to judge the grind
+    setup and decide when its definition should change.
+
+The grind track stays paper (`grind.live: false`) until its forward record shows an
+edge. The bar is at least 30 closed signals averaging +0.1R or better, with t ≥ 2.
+Today it is break-even overall, and its only positive slice, short grinds, depends on
+this month's falling market.

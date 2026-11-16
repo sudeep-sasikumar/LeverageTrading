@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 from . import BAR_MS
 from .config import Config
 from .db import DB
-from .labels import costs, plan_trade
+from .candidates import grind_rank
+from .labels import costs, plan_grind, plan_trade
 from .learner import expected_r, predict
 from .scoring import reasons, rule_score
 from .telegram import esc
@@ -31,10 +32,15 @@ def utc(ts_ms: int, fmt: str = "%H:%M UTC") -> str:
 class RiskState:
     """Portfolio-level state derived from the signals table."""
 
-    def __init__(self, cfg: Config, db: DB, now_ms: int):
+    def __init__(self, cfg: Config, db: DB, now_ms: int, kind: str = "momentum"):
+        """Limits are per track: grind (paper research) signals never use up momentum slots."""
         day0 = now_ms // DAY * DAY
-        self.open = [dict(r) for r in db.query("SELECT * FROM signals WHERE status='open'")]
-        today = [dict(r) for r in db.query("SELECT * FROM signals WHERE ts>=? ORDER BY ts", (day0,))]
+        self.kind, self.now = kind, now_ms
+        self.all_open = [dict(r) for r in db.query("SELECT * FROM signals WHERE status='open'")]
+        same = "COALESCE(kind,'momentum')=?"
+        self.open = [s for s in self.all_open if (s.get("kind") or "momentum") == kind]
+        today = [dict(r) for r in db.query(f"SELECT * FROM signals WHERE ts>=? AND {same} ORDER BY ts", (day0, kind))]
+        self.last_ts = max((s["ts"] for s in today), default=0)
         self.sent_today = len(today)
         closed = [s for s in today if s["status"] != "open" and s["ret_r"] is not None]
         self.day_r = sum(s["ret_r"] for s in closed)
@@ -44,8 +50,8 @@ class RiskState:
                 self.streak += 1
             else:
                 break
-        week = db.query("SELECT COALESCE(SUM(ret_r),0) AS r FROM signals WHERE status!='open' AND exit_ts>=?",
-                        (now_ms - 7 * DAY,))
+        week = db.query(f"SELECT COALESCE(SUM(ret_r),0) AS r FROM signals WHERE status!='open' AND exit_ts>=? "
+                        f"AND {same}", (now_ms - 7 * DAY, kind))
         self.week_r = float(week[0]["r"])
         self.safe_mode = self.week_r <= cfg.risk.safe_mode_7d_r
         cool = db.query("SELECT symbol, MAX(exit_ts) AS t FROM signals WHERE ret_r<0 AND exit_ts>=? GROUP BY symbol",
@@ -54,15 +60,24 @@ class RiskState:
 
     def block_reason(self, cfg: Config, symbol: str) -> str | None:
         r = cfg.risk
-        if len(self.open) >= r.max_open:
-            return "max_open"
-        if self.sent_today >= r.max_per_day:
-            return "max_per_day"
+        if self.kind == "grind":
+            g = cfg.grind
+            if len(self.open) >= g.max_open:
+                return "max_open"
+            if self.sent_today >= g.max_per_day:
+                return "max_per_day"
+            if self.now - self.last_ts < g.min_gap_hours * 3_600_000:
+                return "spacing"
+        else:
+            if len(self.open) >= r.max_open:
+                return "max_open"
+            if self.sent_today >= r.max_per_day:
+                return "max_per_day"
         if self.day_r <= r.daily_stop_r:
             return "daily_stop"
         if self.streak >= r.max_consecutive_losses:
             return "loss_streak"
-        if any(s["symbol"] == symbol for s in self.open):
+        if any(s["symbol"] == symbol for s in self.all_open):
             return "already_open"
         if symbol in self.cooling:
             return "symbol_cooldown"
@@ -76,6 +91,12 @@ class SignalEngine:
     # ---- scoring -------------------------------------------------------
     def score(self, cand: dict, bundle: dict | None) -> None:
         feat = cand["features"]
+        if cand.get("kind") == "grind":
+            # separate research track: own trade plan, no model yet (the model is trained on momentum candidates)
+            cand["rule_score"] = cand["score"] = grind_rank(feat)
+            cand["plan"] = plan_grind(self.cfg.trade, self.cfg.grind, cand["atr_pct"], self.cfg.risk.risk_per_trade)
+            cand["p"] = cand["ev_r"] = None
+            return
         cand["rule_score"] = rule_score(feat)
         cand["plan"] = plan_trade(self.cfg.trade, cand["atr_pct"], self.cfg.risk.risk_per_trade)
         cand["score"], cand["p"] = predict(bundle, feat) if bundle else (None, None)
@@ -86,6 +107,9 @@ class SignalEngine:
     def _grade(self, cand: dict, bundle: dict | None, state: RiskState, now_ms: int) -> str | None:
         """A / B = validated model (real signals). P = paper: no validated model yet."""
         sc = self.cfg.signal
+        if cand.get("kind") == "grind":
+            g = self.cfg.grind
+            return ("G" if g.live else "P") if cand["score"] >= g.min_rank else None
         if bundle is None:
             return "P" if cand["rule_score"] >= sc.rules_min_score else None
         paper = bundle.get("status") != "champion"
@@ -105,10 +129,12 @@ class SignalEngine:
         for c in cands:
             self.score(c, bundle)
         order = sorted(cands, key=lambda c: (c["score"] if c["score"] is not None else c["rule_score"]), reverse=True)
+        order.sort(key=lambda c: c.get("kind") == "grind")       # momentum first; stable within each track
         paused = bool(self.db.get("paused", False))
         sent = []
         for c in order:
-            state = RiskState(cfg, self.db, now_ms)       # re-read: a signal sent this cycle changes it
+            # re-read every time: a signal sent this cycle changes it
+            state = RiskState(cfg, self.db, now_ms, "grind" if c.get("kind") == "grind" else "momentum")
             feat = c["features"]
             reason = None
             if paused:
@@ -170,14 +196,15 @@ class SignalEngine:
         tp = entry * (1 + side * plan["tp_pct"])
         if prec is not None:
             sl, tp = round(sl, int(prec)), round(tp, int(prec))
-        expires = now_ms + self.cfg.trade.horizon_bars * BAR_MS
+        expires = now_ms + plan.get("horizon_bars", self.cfg.trade.horizon_bars) * BAR_MS
+        kind = "grind" if c.get("kind") == "grind" else "momentum"
+        version = "grind-rules" if kind == "grind" else (bundle["version"] if bundle else "rules")
         cur = self.db.execute(
             """INSERT INTO signals(candidate_id,symbol,side,ts,grade,entry,sl,tp,sl_pct,tp_pct,leverage,margin_frac,
-                                   p,ev_r,model_version,expires_ts,status,last_checked_ts)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?)""",
+                                   p,ev_r,model_version,kind,expires_ts,status,last_checked_ts)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?)""",
             (c.get("id"), c["symbol"], side, now_ms, c["grade"], entry, sl, tp, plan["sl_pct"], plan["tp_pct"],
-             plan["leverage"], plan["margin_frac"], c["p"], c["ev_r"], bundle["version"] if bundle else "rules",
-             expires, now_ms))
+             plan["leverage"], plan["margin_frac"], c["p"], c["ev_r"], version, kind, expires, now_ms))
         return dict(self.db.query("SELECT * FROM signals WHERE id=?", (cur.lastrowid,))[0]) | {"precision": prec}
 
     # ---- message -------------------------------------------------------
@@ -188,9 +215,14 @@ class SignalEngine:
         chase = sig["entry"] * (1 + side * 0.25 * plan["tp_pct"])
         pos, neg = reasons(c["features"])
         f = c["features"]
-        grade_note = {"A": "Grade A", "B": "Grade B (best of day, lower conviction)", "P": "PAPER"}
-        lines = [f"{icon} <b>{word} {esc(sig['symbol'])}</b> · {grade_note.get(sig['grade'], sig['grade'])}"]
-        if sig["grade"] == "P":
+        grade_note = {"A": "Grade A", "B": "Grade B (best of day, lower conviction)", "P": "PAPER", "G": "Grind"}
+        grind = c.get("kind") == "grind"
+        title = f"{icon} <b>{word} {esc(sig['symbol'])}</b> · {grade_note.get(sig['grade'], sig['grade'])}"
+        lines = [title + (" · steady-trend (grind) setup" if grind else "")]
+        if grind and sig["grade"] == "P":
+            lines.append("📝 <b>Paper research signal — the grind setup has no proven edge yet "
+                         "(break-even over the last month after fees). Track it, do not trade it.</b>")
+        elif sig["grade"] == "P":
             lines.append("📝 <b>Paper signal — the model has not passed validation yet. "
                          "Track it, do not trade it with real money.</b>")
         lines += [
@@ -210,7 +242,12 @@ class SignalEngine:
                   f"({utc(sig['expires_ts'] + cfg.telegram.local_utc_offset_minutes * 60_000, '%H:%M')} "
                   f"{esc(cfg.telegram.local_tz_label)}) if neither level is hit",
                   f"Skip if price is already beyond <code>{fmt_price(chase, prec)}</code>", ""]
-        if sig["p"] is not None:
+        if grind:
+            lines.append(f"Grind: 6h {f.get('r_6h', 0) * 100:+.1f}% · straightness R² {f.get('g_r2_6h', 0):.2f} · "
+                         f"{int(f.get('g_hours_with') or 0)}/6 hours with the trend · biggest hour "
+                         f"{(f.get('g_big1h') or 0):.0%} of the move · hold up to "
+                         f"{plan.get('horizon_bars', 288) * 5 // 60}h")
+        elif sig["p"] is not None:
             label = "Unvalidated model estimate" if sig["grade"] == "P" else "Model"
             lines.append(f"{label}: P(target first) {sig['p']:.0%} · EV {sig['ev_r']:+.2f}R · "
                          f"{esc(sig['model_version'])}")

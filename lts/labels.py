@@ -30,14 +30,32 @@ def plan_trade(tc: Trade, atr_pct: float, risk_per_trade: float = 0.01) -> dict 
     sl = stop_pct(tc, atr_pct)
     if sl is None:
         return None
+    return plan_from_stop(tc, sl, tc.rr, risk_per_trade, tc.horizon_bars)
+
+
+def grind_stop_pct(gc, atr_1h: float, sl_mult: float | None = None) -> float | None:
+    if atr_1h is None or not np.isfinite(atr_1h) or atr_1h <= 0:
+        return None
+    raw = (sl_mult if sl_mult is not None else gc.sl_atr1h_mult) * atr_1h
+    if raw > gc.max_sl_pct:
+        return None
+    return max(raw, gc.min_sl_pct)
+
+
+def plan_grind(tc: Trade, gc, atr_1h: float, risk_per_trade: float = 0.01) -> dict | None:
+    sl = grind_stop_pct(gc, atr_1h)
+    return None if sl is None else plan_from_stop(tc, sl, gc.rr, risk_per_trade, gc.horizon_bars)
+
+
+def plan_from_stop(tc: Trade, sl: float, rr: float, risk_per_trade: float, horizon_bars: int) -> dict:
     cst = costs(tc)
-    tp = tc.rr * sl
+    tp = rr * sl
     lev = int(min(tc.max_leverage, max(1, math.ceil(tc.target_margin_return / max(tp - cst["tp"], 1e-6)))))
     # never let the stop sit beyond 60% of the way to liquidation
     while lev > 1 and sl > 0.6 / lev:
         lev -= 1
     loss_margin = lev * (sl + cst["sl"])
-    return {"sl_pct": sl, "tp_pct": tp, "leverage": lev,
+    return {"sl_pct": sl, "tp_pct": tp, "leverage": lev, "horizon_bars": horizon_bars,
             "gain_margin": lev * (tp - cst["tp"]), "loss_margin": loss_margin,
             "win_r": (tp - cst["tp"]) / sl, "loss_r": -(sl + cst["sl"]) / sl,
             "margin_frac": min(1.0, risk_per_trade / loss_margin)}
@@ -101,6 +119,34 @@ def excursions(side: int, entry: float, h: np.ndarray, l: np.ndarray) -> tuple[f
         return 0.0, 0.0
     up, down = h.max() / entry - 1, 1 - l.min() / entry
     return (max(up, 0.0), max(down, 0.0)) if side > 0 else (max(down, 0.0), max(up, 0.0))
+
+
+def label_grind(tc: Trade, gc, side: int, atr_1h: float, o: np.ndarray, h: np.ndarray, l: np.ndarray,
+                c: np.ndarray, ref_price: float | None = None) -> dict | None:
+    """Triple-barrier label for a grind candidate: 1h-ATR stop, gc.rr target, gc.horizon_bars."""
+    n = gc.horizon_bars
+    if len(o) < n:
+        return None
+    sl = grind_stop_pct(gc, atr_1h)
+    entry = float(o[0])
+    if sl is None or not np.isfinite(entry) or entry <= 0:
+        return None
+    cst = costs(tc)
+    main = barrier(side, entry, sl, gc.rr * sl, h, l, c, n, cst)
+    if main is None:
+        return None
+    mfe, mae = excursions(side, entry, h[:n], l[:n])
+    grid = {}
+    for m in gc.grid_sl_mult:
+        s = grind_stop_pct(gc, atr_1h, m)
+        if s is None:
+            continue
+        for rr in gc.grid_rr:
+            g = barrier(side, entry, s, rr * s, h, l, c, n, cst)
+            if g is not None:
+                grid[f"{m}|{rr}|{n}"] = [g["outcome"], round(g["ret_r"], 4), g["bars"]]
+    return {"label": int(main["outcome"] == "tp"), "outcome": main["outcome"], "ret_r": main["ret_r"],
+            "bars": main["bars"], "mfe": mfe, "mae": mae, "sl_pct": sl, "entry": entry, "grid": grid}
 
 
 def label_path(tc: Trade, side: int, atr_pct: float, o: np.ndarray, h: np.ndarray, l: np.ndarray,
