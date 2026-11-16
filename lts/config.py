@@ -97,6 +97,15 @@ class GrindLab:
 
 
 @dataclass
+class Micro:
+    """Live collection of liquidations and order-book depth (for studying sweeps / stop hunts)."""
+    enabled: bool = True
+    book_symbols: int = 120              # order-book snapshots for the N most liquid coins (+ anything grinding)
+    book_every_minutes: int = 5
+    keep_days: int = 180
+
+
+@dataclass
 class Risk:
     risk_per_trade: float = 0.01         # fraction of account lost if the stop is hit
     max_open: int = 2
@@ -175,6 +184,7 @@ class Config:
     trade: Trade = field(default_factory=Trade)
     grind: Grind = field(default_factory=Grind)
     grindlab: GrindLab = field(default_factory=GrindLab)
+    micro: Micro = field(default_factory=Micro)
     risk: Risk = field(default_factory=Risk)
     signal: Signal = field(default_factory=Signal)
     learn: Learn = field(default_factory=Learn)

@@ -148,6 +148,11 @@ def snapshot(db_path: Path) -> dict:
             "grind": _stats([r for r in closed if r["kind"] == "grind"]),
         }
         out["movers"] = kv.get("movers_latest")
+        if q("SELECT 1 FROM sqlite_master WHERE type='table' AND name='liquidations'"):
+            liq = q("SELECT COUNT(*) n, COALESCE(SUM(usd), 0) usd, MAX(ts) last FROM liquidations WHERE ts>=?", (now - DAY,))[0]
+            books = q("SELECT COUNT(*) n, COUNT(DISTINCT symbol) s, MAX(ts) last FROM book_snapshots WHERE ts>=?", (now - DAY,))[0]
+            out["micro"] = {"liq_24h": liq["n"], "liq_usd_24h": liq["usd"], "liq_last": liq["last"],
+                            "books_24h": books["n"], "book_symbols": books["s"], "book_last": books["last"]}
         out["grindlab"] = kv.get("grindlab_report")
         if q("SELECT 1 FROM sqlite_master WHERE type='table' AND name='grind_live'"):
             live = q("SELECT symbol, ts, side, price, score, model_p, catalyst, checks, factors, decision FROM grind_live "

@@ -164,6 +164,8 @@ class Service:
         self.engine = SignalEngine(cfg, db, self.weex, self.tg)
         self.bundle = load_bundle(cfg, db)
         self.cache = DatasetCache(db, cfg.storage.feature_window_bars)
+        from .microstructure import LiquidationStream
+        self.liq = LiquidationStream(db)
         self.started = time.time()
         self.last_bar = 0
         self.alerted = False
@@ -223,6 +225,9 @@ class Service:
                     self.db.set("last_train_day", day)
                     await self.retrain()
                     self.db.prune(self.cfg.storage.keep_klines_days)
+                    if self.cfg.micro.enabled:
+                        from .microstructure import prune as micro_prune
+                        micro_prune(self.db, self.cfg.micro.keep_days)
                 gl = self.cfg.grindlab
                 if gl.enabled and self.db.get("last_grindlab_day") != day and \
                         (now.hour, now.minute) >= (gl.nightly_utc_hour, gl.nightly_utc_minute):
@@ -234,6 +239,21 @@ class Service:
                     await self.daily_report()
             except Exception:
                 log.exception("slow loop failed")
+
+    async def book_loop(self) -> None:
+        """Order-book depth snapshots, 40s after every N-minute boundary."""
+        from .microstructure import book_symbols, snapshot_books
+        mc = self.cfg.micro
+        step = mc.book_every_minutes * 60
+        while True:
+            now = time.time()
+            await asyncio.sleep(max(1.0, (math.floor(now / step) + 1) * step + 40 - now))
+            try:
+                ts = int(time.time() // step * step * 1000)
+                n = await snapshot_books(self.db, self.binance, book_symbols(self.db, mc.book_symbols), ts)
+                log.debug("order-book snapshots: %d", n)
+            except Exception:
+                log.exception("order-book snapshot failed")
 
     async def grind_loop(self) -> None:
         """Hourly (3 minutes after the hour): latest 1h bars -> early-grind detection -> paper trades."""
@@ -363,6 +383,8 @@ class Service:
         tasks = [asyncio.create_task(t) for t in
                  (self.bar_loop(), self.track_loop(), self.slow_loop(), self.grind_loop(),
                   self.tg.poll_commands(self.command))]
+        if self.cfg.micro.enabled:
+            tasks += [asyncio.create_task(self.liq.run()), asyncio.create_task(self.book_loop())]
         try:
             await asyncio.gather(*tasks)
         finally:

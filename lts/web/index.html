@@ -282,6 +282,8 @@ function render(d) {
     item("Last scan", hb ? `${hb.candidates} candidates, ${hb.signals} signals, collect ${num(hb.collect_s, 1)}s + scan ${num(hb.scan_s, 1)}s` : "–"),
     item("Collection errors (last cycle)", hb ? hb.errors : "–"), item("Telegram", hb ? (hb.telegram ? "configured" : '<span class="neg">not configured</span>') : "–"),
     item("Candidates stored", (dd.candidates ?? 0).toLocaleString() + ` (${(dd.live_candidates ?? 0).toLocaleString()} live)`),
+    item("Liquidations recorded (24h)", d.micro ? `${(d.micro.liq_24h || 0).toLocaleString()} ($${((d.micro.liq_usd_24h || 0) / 1e6).toFixed(1)}M), last ${ago(d.micro.liq_last)}` : "not started"),
+    item("Order-book snapshots (24h)", d.micro ? `${(d.micro.books_24h || 0).toLocaleString()} across ${d.micro.book_symbols || 0} coins, last ${ago(d.micro.book_last)}` : "not started"),
     item("Last nightly training", esc(d.last_train_day || "not yet")), item("Signals paused", d.paused ? "yes (/resume in Telegram)" : "no"), item("Build", esc(d.version)),
   ].join("");
 }
