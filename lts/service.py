@@ -287,7 +287,8 @@ class Service:
                           "model_p": r.get("model_p"), "checks": r.get("checks"), "catalyst": r.get("catalyst", 0),
                           "on_weex": bool(m.get("on_weex")), "src": "binance",
                           "price_precision": m.get("price_precision"), "features": feats})
-        worth = [c for c in cands if c["catalyst"] or c["score_n"] >= self.cfg.grindlab.min_score]
+        worth = [c for c in cands if self.cfg.grindlab.paper_trades and
+                 (c["catalyst"] or c["score_n"] >= self.cfg.grindlab.min_score)]
         for c in worth:                                  # Weex book only for the ones that may be sent
             c["book"] = None
             if c["on_weex"]:
@@ -301,12 +302,47 @@ class Service:
                 c["features"]["weex_dev_bps"] = (c["book"]["mid"] / c["ref_price"] - 1) * 1e4 * c["side"]
         await self.engine.decide(worth, None, int(time.time() * 1000))
         await self.daily_pick(rows, meta)
+        await self.grind_signals(rows, meta)
         for c in cands:
             self.db.execute("UPDATE grind_live SET decision=? WHERE symbol=? AND ts=? AND side=?",
                             (c.get("decision") or "skipped:below_score", c["symbol"], c["ts"], c["side"]))
         log.info("grind lab hour: %d early grinds, %d with enough traits, %d sent", len(cands), len(worth),
                  sum(1 for c in worth if c.get("decision") == "sent"))
         return cands
+
+    async def grind_signals(self, rows: list[dict], meta: dict) -> None:
+        """Score every early grind with the pattern-recognition model; send ALL above min_p."""
+        from . import grindsignal as GS
+        g = self.cfg.grindsignal
+        if not g.enabled or not rows:
+            return
+        if not getattr(self, "gs_bundle", None) or time.time() - getattr(self, "gs_loaded", 0) > 6 * 3600:
+            self.gs_bundle, self.gs_loaded = GS.load_bundle(self.cfg), time.time()
+        if not self.gs_bundle:
+            return
+        pres = [GS.pre_from_db(self.db, r["symbol"], r["ts"]) for r in rows]
+        GS.score_rows(rows, pres, self.gs_bundle)
+        picks = []
+        for r in rows:
+            if r["p"] < g.min_p:
+                continue
+            m = meta.get(r["symbol"], {})
+            picks.append({"symbol": r["symbol"], "side": r["side"], "ts": r["ts"], "ref_price": r["price"],
+                          "atr_pct": r.get("atr_1h"), "kind": "grindsig", "p_model": r["p"], "band": r["band"],
+                          "on_weex": bool(m.get("on_weex")), "src": "binance", "price_precision": m.get("price_precision"),
+                          "features": {k: r.get(k) for k in ("r_6h", "r_24h", "sh_r2_6h") if r.get(k) is not None}})
+        for p in picks:
+            p["book"] = await self.weex.book(p["symbol"]) if p["on_weex"] else None
+            p["weex_qv24"] = (self.collector.weex_tickers.get(p["symbol"]) or {}).get("qv24")
+            if p["book"] and p["ref_price"]:
+                p["features"]["weex_dev_bps"] = (p["book"]["mid"] / p["ref_price"] - 1) * 1e4 * p["side"]
+        for r in rows:
+            self.db.execute("UPDATE grind_live SET model_p=? WHERE symbol=? AND ts=? AND side=?",
+                            (r["p"], r["symbol"], r["ts"], r["side"]))
+        if picks:
+            await self.engine.decide(picks, None, int(time.time() * 1000))
+        log.info("grind signals: %d early grinds scored, %d above %.0f%%, %d sent", len(rows), len(picks), g.min_p * 100,
+                 sum(1 for p in picks if p.get("decision") == "sent"))
 
     async def daily_pick(self, rows: list[dict], meta: dict) -> None:
         """The project's aim: the first early grind of the day that clears the daily-trade threshold."""
@@ -343,6 +379,24 @@ class Service:
                 own.close()
         rep = await asyncio.to_thread(work)
         await self.tg.send(grindlab.nightly_text(rep))
+
+        def retrain_signals():
+            from . import grindsignal as GS
+            own = DB(self.cfg.path(self.cfg.storage.db_path))
+            try:
+                return GS.nightly(self.cfg, own)
+            finally:
+                own.close()
+        try:
+            b = await asyncio.to_thread(retrain_signals)
+            if b:
+                self.gs_bundle = None                     # reload on the next hour
+                top = (b.get("bands") or [{}])[-1]
+                await self.tg.send(f"<b>Grind model retrained</b> on {b['n']:,} grinds from this server's data. "
+                                   f"Top band on unseen months: won {top.get('win', 0):.0%}, "
+                                   f"{top.get('net', 0) * 100:+.2f}% per trade.")
+        except Exception:
+            log.exception("grind model retraining failed")
 
     async def daily_report(self) -> None:
         from .movers import review, review_text

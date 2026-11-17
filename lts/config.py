@@ -91,9 +91,23 @@ class GrindLab:
     nightly_utc_hour: int = 1
     nightly_utc_minute: int = 10
     min_score: int = 8                   # checklist traits (of 12) needed for a paper trade
+    paper_trades: bool = False           # superseded by grindsignal (the scored signals)
     stop: float = 0.03                   # paper-trade plan = the study's success definition
     target: float = 0.06
     horizon_hours: int = 24
+
+
+@dataclass
+class GrindSignal:
+    """Every early grind scored by the pattern-recognition model; ALL above min_p are sent (no daily cap)."""
+    enabled: bool = True
+    target: float = 0.01                 # +1% in the coin (= ~+10% on margin at 10x)
+    stop: float = 0.01
+    hours: int = 24
+    min_p: float = 0.60                  # model probability needed to send a signal
+    max_leverage: int = 10
+    min_days_for_own_model: float = 60.0 # retrain on this server's data once it holds this much 5m history
+    live: bool = False                   # signals stay PAPER unless their band qualifies AND this is switched on
 
 
 @dataclass
@@ -101,7 +115,7 @@ class Aim:
     """The project's aim: ONE trade a day worth ~10% on margin (a +1% move at 10x, +2% at 5x).
     Each hour, the first early grind of the UTC day whose score clears `threshold` becomes the day's trade.
     Settings come from the one-year 5-minute test (docs/DESIGN.md section 15)."""
-    enabled: bool = True
+    enabled: bool = False                # superseded by grindsignal (all signals, no daily cap)
     ranker: str = "checklist"            # checklist / smooth / first
     threshold: float = 8.0
     target: float = 0.01                 # +1% in the coin
@@ -201,6 +215,7 @@ class Config:
     grindlab: GrindLab = field(default_factory=GrindLab)
     micro: Micro = field(default_factory=Micro)
     aim: Aim = field(default_factory=Aim)
+    grindsignal: GrindSignal = field(default_factory=GrindSignal)
     risk: Risk = field(default_factory=Risk)
     signal: Signal = field(default_factory=Signal)
     learn: Learn = field(default_factory=Learn)

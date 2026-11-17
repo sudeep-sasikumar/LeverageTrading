@@ -144,9 +144,10 @@ def snapshot(db_path: Path) -> dict:
             "all": _stats(closed),
             "paper": _stats([r for r in closed if r["grade"] == "P"]),
             "real": _stats([r for r in closed if r["grade"] != "P"]),
-            "momentum": _stats([r for r in closed if r["kind"] not in ("grind", "daily")]),
+            "momentum": _stats([r for r in closed if r["kind"] not in ("grind", "daily", "grindsig")]),
             "grind": _stats([r for r in closed if r["kind"] == "grind"]),
             "daily": _stats([r for r in closed if r["kind"] == "daily"]),
+            "grindsig": _stats([r for r in closed if r["kind"] == "grindsig"]),
         }
         out["movers"] = kv.get("movers_latest")
         if q("SELECT 1 FROM sqlite_master WHERE type='table' AND name='liquidations'"):

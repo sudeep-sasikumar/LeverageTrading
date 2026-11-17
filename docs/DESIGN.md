@@ -588,3 +588,56 @@ moment it can be seen is close to a fair coin over 1–2% distances.
   tradeable only if its forward record turns positive with significance.
 - **New data accumulating:** liquidations and order-book depth (section 14) are the main
   candidates to change this result.
+
+## 16. Pattern recognition on the grind's minute-level shape (17 Nov 2026)
+
+**Request:** separate winning grinds from losers with pattern recognition, and send every
+signal rather than one a day.
+
+**Data:**
+- For all 63,528 early-grind moments of the year, the **6 hours of 5-minute bars before the
+  decision**: price, volume and taker-buy volume.
+- 50 shape features in the trade's direction (`lts/grindshape.py`):
+  - the 30-minute path;
+  - speeding up or tiring;
+  - number, depth and recovery of pullbacks;
+  - straightness and efficiency over 6h and 2h;
+  - candle bodies and wicks against the move;
+  - volume trend, climaxes, and volume on with-trend bars;
+  - buy/sell flow over 15 minutes, 1 hour and 6 hours, and its shift.
+
+**Label:** the aim's trade, +1% before −1% within 24h on 5-minute bars, net of fees. Also
++1.5% before −1.5%.
+
+**Test:** monthly walk-forward. Each month is predicted by a model trained only on earlier
+months (1-day gap), giving 11 unseen months. Three models: hourly/daily factors, minute shape
+only, and both together.
+
+**Results (unseen months):**
+
+| Model | AUC, +1%/−1% | AUC, +1.5%/−1.5% |
+|---|---|---|
+| Hourly/daily factors | 0.502 | 0.496 |
+| Minute shape only | 0.519 | 0.512 |
+| Both | 0.508 | 0.496 |
+
+- 0.50 is a coin flip. The factor models' most confident signals won *less* often (44% at
+  ≥ 65% confidence vs 49% overall).
+- The minute-shape model's best band won 51.9% at about 4 signals a day. A +1%/−1% trade needs
+  about 58–61% wins to pay Weex fees, so it still lost −0.15% per trade, and was positive in
+  only 2 of 11 months.
+- **No band qualified** (net > 0, t ≥ 3, ≥ 70% of months positive).
+
+**Conclusion:** with price, volume and flow data, whether a visible grind runs +1% before
+−1% is a fair coin. The fees, about 0.2% per trade, decide the sign.
+
+**What runs (`config.grindsignal`, `lts/grindsignal.py`):**
+- **Every hour:** every early grind is scored by the minute-shape model, and every one with
+  probability ≥ 0.60 is sent (about 4–5 a day, no daily cap).
+- **Each signal:** a +1% target and −1% stop at 10x, with the 5x equivalent and that
+  probability band's real record on unseen months.
+- **Paper unless the band ever qualifies and `grindsignal.live` is on.**
+- **The model:** a seed trained on the full year ships in `lts/models/grind_seed.joblib`.
+  Once the server holds 60 days of its own 5-minute data, the model is retrained nightly on it
+  and its band table refreshed.
+- **Superseded:** the daily-trade track (`aim`) and grind-lab paper trades are switched off.

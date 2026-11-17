@@ -60,7 +60,9 @@ class RiskState:
 
     def block_reason(self, cfg: Config, symbol: str) -> str | None:
         r = cfg.risk
-        if self.kind == "daily":
+        if self.kind == "grindsig":
+            pass                                          # no daily cap: every qualifying signal is sent
+        elif self.kind == "daily":
             if self.open:
                 return "daily_trade_open"
             if self.sent_today >= 1:
@@ -96,6 +98,19 @@ class SignalEngine:
     # ---- scoring -------------------------------------------------------
     def score(self, cand: dict, bundle: dict | None) -> None:
         feat = cand["features"]
+        if cand.get("kind") == "grindsig":
+            g = self.cfg.grindsignal
+            tc = self.cfg.trade
+            cost = tc.taker_fee + tc.slippage + tc.maker_fee
+            lev = int(min(g.max_leverage, max(1, math.ceil(0.10 / max(g.target - cost, 1e-6)))))
+            cand["plan"] = plan_from_stop(tc, g.stop, g.target / g.stop, self.cfg.risk.risk_per_trade, g.hours * 12)
+            cand["plan"]["leverage"] = lev
+            cand["plan"]["gain_margin"] = lev * (g.target - cost)
+            cand["plan"]["loss_margin"] = lev * (g.stop + 2 * (tc.taker_fee + tc.slippage))
+            cand["plan"]["margin_frac"] = min(1.0, self.cfg.risk.risk_per_trade / cand["plan"]["loss_margin"])
+            cand["rule_score"] = cand["score"] = float(cand["p_model"])
+            cand["p"], cand["ev_r"] = cand["p_model"], None
+            return
         if cand.get("kind") == "daily":
             a = self.cfg.aim
             tc = self.cfg.trade
@@ -134,6 +149,11 @@ class SignalEngine:
     def _grade(self, cand: dict, bundle: dict | None, state: RiskState, now_ms: int) -> str | None:
         """A / B = validated model (real signals). P = paper: no validated model yet."""
         sc = self.cfg.signal
+        if cand.get("kind") == "grindsig":
+            from .grindsignal import qualifies
+            if cand["score"] < self.cfg.grindsignal.min_p:
+                return None
+            return "G" if (self.cfg.grindsignal.live and qualifies(cand.get("band"))) else "P"
         if cand.get("kind") == "daily":
             return ("D" if self.cfg.aim.live else "P") if cand["score"] >= self.cfg.aim.threshold else None
         if cand.get("kind") == "grindlab":
@@ -166,8 +186,8 @@ class SignalEngine:
         sent = []
         for c in order:
             # re-read every time: a signal sent this cycle changes it
-            state = RiskState(cfg, self.db, now_ms, {"grind": "grind", "grindlab": "grind", "daily": "daily"}.get(
-                c.get("kind"), "momentum"))
+            state = RiskState(cfg, self.db, now_ms, {"grind": "grind", "grindlab": "grind", "daily": "daily",
+                                                     "grindsig": "grindsig"}.get(c.get("kind"), "momentum"))
             feat = c["features"]
             reason = None
             if paused:
@@ -232,8 +252,9 @@ class SignalEngine:
         if prec is not None:
             sl, tp = round(sl, int(prec)), round(tp, int(prec))
         expires = now_ms + plan.get("horizon_bars", self.cfg.trade.horizon_bars) * BAR_MS
-        kind = {"grind": "grind", "grindlab": "grind", "daily": "daily"}.get(c.get("kind"), "momentum")
-        version = {"grind": "grind-rules", "grindlab": "grind-lab", "daily": "daily-aim"}.get(c.get("kind")) or \
+        kind = {"grind": "grind", "grindlab": "grind", "daily": "daily", "grindsig": "grindsig"}.get(c.get("kind"), "momentum")
+        version = {"grind": "grind-rules", "grindlab": "grind-lab", "daily": "daily-aim",
+                   "grindsig": "grind-model"}.get(c.get("kind")) or \
             (bundle["version"] if bundle else "rules")
         cur = self.db.execute(
             """INSERT INTO signals(candidate_id,symbol,side,ts,grade,entry,sl,tp,sl_pct,tp_pct,leverage,margin_frac,
@@ -242,6 +263,29 @@ class SignalEngine:
             (c.get("id"), c["symbol"], side, now_ms, c["grade"], entry, sl, tp, plan["sl_pct"], plan["tp_pct"],
              plan["leverage"], plan["margin_frac"], c["p"], c["ev_r"], version, kind, expires, now_ms))
         return dict(self.db.query("SELECT * FROM signals WHERE id=?", (cur.lastrowid,))[0]) | {"precision": prec}
+
+    def _grindsig_message(self, sig, c, plan, prec, icon, word) -> str:
+        g = self.cfg.grindsignal
+        b = c.get("band") or {}
+        lines = [f"{icon} <b>GRIND {word} {esc(sig['symbol'])}</b> · model {c['p_model']:.0%}"
+                 + (" · PAPER" if sig["grade"] == "P" else "")]
+        if sig["grade"] == "P":
+            lines.append("📝 <i>Unproven: signals in this probability band have not shown an edge after fees on unseen "
+                         "months. Your call.</i>")
+        lines += ["",
+                  f"Entry  <code>{fmt_price(sig['entry'], prec)}</code>  (market now)",
+                  f"Target <code>{fmt_price(sig['tp'], prec)}</code>  (+{g.target:.1%})   "
+                  f"Stop <code>{fmt_price(sig['sl'], prec)}</code>  (−{g.stop:.1%})   max {g.hours}h",
+                  f"{plan['leverage']}x → target ≈ <b>+{plan['gain_margin']:.1%}</b> on margin, stop ≈ −{plan['loss_margin']:.1%} "
+                  f"(5x: +{plan['gain_margin'] / plan['leverage'] * 5:.1%} / −{plan['loss_margin'] / plan['leverage'] * 5:.1%})"]
+        if b:
+            lines.append(f"History of signals scoring ≥{b['p_min']:.0%} (unseen months): won {b['win']:.0%}, "
+                         f"{b['net'] * 100:+.2f}% per trade after fees, ~{b['per_day']:.1f}/day")
+        f = c.get("features", {})
+        lines.append(f"6h {f.get('r_6h', 0) * 100:+.1f}% · 24h {f.get('r_24h', 0) * 100:+.1f}% · "
+                     f"steadiness R² {f.get('sh_r2_6h', float('nan')):.2f}")
+        lines.append(f"#S{sig['id']}")
+        return "\n".join(lines)
 
     def _daily_message(self, sig, c, plan, prec, icon, word) -> str:
         a = self.cfg.aim
@@ -274,6 +318,8 @@ class SignalEngine:
                       "D": "Daily trade"}
         if c.get("kind") == "daily":
             return self._daily_message(sig, c, plan, prec, icon, word)
+        if c.get("kind") == "grindsig":
+            return self._grindsig_message(sig, c, plan, prec, icon, word)
         grind = c.get("kind") in ("grind", "grindlab")
         title = f"{icon} <b>{word} {esc(sig['symbol'])}</b> · {grade_note.get(sig['grade'], sig['grade'])}"
         lines = [title + (" · steady-trend (grind) setup" if grind else "")]
