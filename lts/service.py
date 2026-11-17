@@ -304,10 +304,11 @@ class Service:
                 c["features"]["weex_dev_bps"] = (c["book"]["mid"] / c["ref_price"] - 1) * 1e4 * c["side"]
         await self.engine.decide(worth, None, int(time.time() * 1000))
         await self.daily_pick(rows, meta)
+        if self.cfg.grindlab.paper_trades:
+            for c in cands:
+                self.db.execute("UPDATE grind_live SET decision=? WHERE symbol=? AND ts=? AND side=?",
+                                (c.get("decision") or "skipped:below_score", c["symbol"], c["ts"], c["side"]))
         await self.grind_signals(rows, meta)
-        for c in cands:
-            self.db.execute("UPDATE grind_live SET decision=? WHERE symbol=? AND ts=? AND side=?",
-                            (c.get("decision") or "skipped:below_score", c["symbol"], c["ts"], c["side"]))
         log.info("grind lab hour: %d early grinds, %d with enough traits, %d sent", len(cands), len(worth),
                  sum(1 for c in worth if c.get("decision") == "sent"))
         return cands
@@ -345,6 +346,11 @@ class Service:
                             (r["p"], r["symbol"], r["ts"], r["side"]))
         if picks:
             await self.engine.decide(picks, None, int(time.time() * 1000))
+        decided = {(p["symbol"], p["side"]): p.get("decision") for p in picks}
+        for r in rows:                                   # what happened to each grind, for the Grinders tab
+            dec = decided.get((r["symbol"], r["side"])) or f"below model threshold ({r['p']:.3f} < {p_min:.3f})"
+            self.db.execute("UPDATE grind_live SET decision=? WHERE symbol=? AND ts=? AND side=?",
+                            (dec, r["symbol"], r["ts"], r["side"]))
         log.info("grind signals: %d early grinds scored, %d in the top %.0f%%, %d sent", len(rows), len(picks), g.top_share * 100,
                  sum(1 for p in picks if p.get("decision") == "sent"))
 
