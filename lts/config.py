@@ -104,7 +104,7 @@ class GrindSignal:
     as the signal's own result, and every plan's outcome is recorded too (docs/DESIGN.md section 17)."""
     enabled: bool = True
     plans: list = field(default_factory=lambda: [
-        {"leverage": 10, "target": 0.01, "stop": 0.0075},
+        {"leverage": 10, "target": 0.01, "stop": 0.005},      # trader: 10x stop max 0.5%
         {"leverage": 5, "target": 0.02, "stop": 0.01},
         {"leverage": 3, "target": 0.0333, "stop": 0.01},
         {"leverage": 2, "target": 0.05, "stop": 0.0075},

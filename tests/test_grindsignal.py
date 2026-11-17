@@ -75,7 +75,7 @@ def test_seed_model_has_every_plan_and_scores_a_row():
     bundle = GS.load_bundle(cfg)
     assert bundle and bundle["source"].startswith("seed") and len(bundle["plans"]) == 4
     assert all(len(b["plans"]) == 4 for b in bundle["bands"])
-    assert bundle["plans"][0] == {"leverage": 10, "target": 0.01, "stop": 0.0075}
+    assert bundle["plans"][0] == {"leverage": 10, "target": 0.01, "stop": 0.005}
     rng = np.random.default_rng(0)
     c = 10 * np.exp(np.cumsum(0.001 + rng.normal(0, 0.002, 72)))
     o = np.concatenate([[c[0]], c[:-1]])
@@ -131,7 +131,7 @@ def test_every_grind_is_recorded_and_labelled_after_24h(tmp_path):
         _t.time = orig
     o = json.loads(db.query("SELECT outcomes FROM grind_live")[0]["outcomes"])
     assert set(o["plans"]) == {GS.plan_name(p) for p in cfg.grindsignal.plans}
-    assert o["plans"]["10x +1.00% / -0.75%"] > 0.008                     # short: the -1.5% dip hits +1%
+    assert o["plans"]["10x +1.00% / -0.50%"] > 0.008                     # short: the -1.5% dip hits +1%
     assert len(o["grid"]) == len(cfg.grindsignal.record_targets) * len(cfg.grindsignal.record_stops)
     assert o["best"]["24"] > 0.0149
 

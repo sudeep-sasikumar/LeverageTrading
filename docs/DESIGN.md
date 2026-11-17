@@ -688,10 +688,11 @@ loss, but nothing turned profitable.
 
 **10x plan:** +1% target. The trader set no stop, so the tight stops 0.3%, 0.5% and 0.75% were
 tested on the year. They are indistinguishable: −0.22% to −0.24% per trade on unseen months,
-needing 39–54% wins against 21–42% actual. 0.75% (marginally best) is configured
-(`grindsignal.plans[0]`; −10% of margin at the stop).
+needing 39–54% wins against 21–42% actual. The trader's rule is a 10x stop of at most 0.5%,
+so 0.5% is configured (`grindsignal.plans[0]`; about −7.4% of margin at the stop after fees).
+In the top 20% it won 32.4% (about 41% needed), −0.22% per trade.
 
-**Plans now:** 10x +1% / −0.75%, 5x +2% / −1%, 3x +3.33% / −1%, 2x +5% / −0.75% (tracked).
+**Plans now:** 10x +1% / −0.5%, 5x +2% / −1%, 3x +3.33% / −1%, 2x +5% / −0.75% (tracked).
 
 **Sending:** the model's top 20% (score ≥ 0.146 with the seed model, about 30 a day), as the
 trader chose. A percentile of a weak model is not a sound filter; the live record decides
