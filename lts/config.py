@@ -104,12 +104,16 @@ class GrindSignal:
     as the signal's own result, and every plan's outcome is recorded too (docs/DESIGN.md section 17)."""
     enabled: bool = True
     plans: list = field(default_factory=lambda: [
+        {"leverage": 10, "target": 0.01, "stop": 0.0075},
         {"leverage": 5, "target": 0.02, "stop": 0.01},
         {"leverage": 3, "target": 0.0333, "stop": 0.01},
         {"leverage": 2, "target": 0.05, "stop": 0.0075},
     ])
-    primary: int = 2                     # index of the tracked plan (2x +5% / -0.75% held up best on unseen months)
-    top_share: float = 0.05              # send the best-scoring 5% of grinds (~7-8 a day)
+    primary: int = 3                     # index of the tracked plan (2x +5% / -0.75% held up best on unseen months)
+    top_share: float = 0.20              # send the best-scoring 20% of grinds (~30 a day) - trader's choice
+    # every detected grind is labelled after 24h on this grid too (targets x stops), for later tuning
+    record_targets: list = field(default_factory=lambda: [0.01, 0.015, 0.02, 0.0333, 0.05])
+    record_stops: list = field(default_factory=lambda: [0.003, 0.005, 0.0075, 0.01, 0.015, 0.02])
     hours: int = 24
     min_days_for_own_model: float = 60.0 # retrain on this server's data once it holds this much 5m history
     live: bool = False                   # PAPER unless the primary plan's band qualifies AND this is switched on

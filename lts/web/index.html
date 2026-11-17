@@ -101,7 +101,9 @@ button.primary{background:var(--accent);color:#fff;border-color:transparent;font
     could have entered, and compares the ones that kept going with lookalikes that fizzled. Every hour it checks which coins
     are grinding now and how many of those traits they have. The best are paper-traded (−3% stop, +6% target, 24h).</p>
     <div class="tiles" id="grindTiles"></div>
-    <h2>Grinding right now (last 48h)</h2><div class="panel scroll" id="grindLive"></div>
+    <h2 id="allTitle">Every grind detected (last 3 days) — sent or not, with how each plan did after 24h</h2>
+    <div class="panel scroll" id="grindAll"></div>
+    <h2>Grinding right now (last 48h) — traits</h2><div class="panel scroll" id="grindLive"></div>
     <h2>Grind signals: how each plan did (every signal, scored after 24h)</h2><div class="panel scroll" id="planStats"></div>
     <h2>Grind signals</h2><div class="panel scroll" id="grindTrades"></div>
     <h2 id="labTitle">What successful grinders have in common</h2>
@@ -131,6 +133,8 @@ const num = (x, d = 2) => x == null ? "–" : Number(x).toFixed(d);
 const pct = (x, d = 1) => x == null ? "–" : (x * 100).toFixed(d) + "%";
 const signed = (x, d = 2, unit = "R") => x == null ? "–" : `<span class="${x > 0 ? "pos" : x < 0 ? "neg" : ""}">${x > 0 ? "+" : ""}${Number(x).toFixed(d)}${unit}</span>`;
 const price = x => x == null ? "–" : Number(x).toPrecision(6).replace(/\.?0+$/, "");
+const weexUrl = sym => `https://www.weex.com/futures/${String(sym).replace(/USDT$/, "")}-USDT`;
+const coin = sym => `<a href="${weexUrl(sym)}" target="_blank" rel="noopener noreferrer" title="Open the Weex chart"><b>${esc(sym)}</b> ↗</a>`;
 const side = s => s > 0 ? '<span class="chip good">LONG</span>' : '<span class="chip bad">SHORT</span>';
 const grade = g => g === "P" ? '<span class="chip warn">PAPER</span>' : `<span class="chip accent">Grade ${esc(g)}</span>`;
 const statusChip = s => ({open:'<span class="chip accent">open</span>', tp:'<span class="chip good">target</span>',
@@ -179,7 +183,7 @@ function render(d) {
   ].join("");
 
   const sigHead = [["Time"],["Coin"],["Side"],["Type"],["Entry","num"],["Stop","num"],["Target","num"],["Lev","num"],["Status"],["Result","num"],["On margin","num"],["Closed"]];
-  const sigRow = s => [dt(s.ts), `<b>${esc(s.symbol)}</b>`, side(s.side), grade(s.grade) + (s.kind === "grind" ? ' <span class="chip">grind</span>' : s.kind === "daily" ? ' <span class="chip accent">🎯 daily</span>' : s.kind === "grindsig" ? ` <span class="chip accent">grind ${s.p == null ? "" : pct(s.p, 0)}</span>` : ""), price(s.entry),
+  const sigRow = s => [dt(s.ts), coin(s.symbol), side(s.side), grade(s.grade) + (s.kind === "grind" ? ' <span class="chip">grind</span>' : s.kind === "daily" ? ' <span class="chip accent">🎯 daily</span>' : s.kind === "grindsig" ? ` <span class="chip accent">grind ${s.p == null ? "" : pct(s.p, 0)}</span>` : ""), price(s.entry),
     `${price(s.sl)} <span class="muted">(${pct(s.sl_pct, 2)})</span>`, `${price(s.tp)} <span class="muted">(${pct(s.tp_pct, 2)})</span>`,
     s.leverage + "x", statusChip(s.status), signed(s.ret_r), s.ret_margin == null ? "–" : signed(s.ret_margin * 100, 1, "%"), dt(s.exit_ts)];
   table($("open"), sigHead.slice(0, 9).concat([["Best so far","num"],["Worst so far","num"],["Time stop"]]),
@@ -189,7 +193,7 @@ function render(d) {
   const skipNames = {sent:"sent as a signal", would_send:"would send"};
   $("skips").innerHTML = (d.skips_24h || []).map(s => `<span class="chip">${esc(skipNames[s.decision] || s.decision.replace("skipped:", "").replaceAll("_", " "))} · ${s.n}</span>`).join(" ") || '<span class="muted">No candidates in the last 24 hours.</span>';
   table($("cands"), [["Time"],["Coin"],["Side"],["Setup"],["ATR","num"],["Model P(target)","num"],["Decision"],["What happened"],["Result","num"]],
-    (d.candidates || []).map(c => [dt(c.ts), `<b>${esc(c.symbol)}</b>`, side(c.side), esc(c.kind || ""), pct(c.atr_pct, 2), c.model_p == null ? "–" : pct(c.model_p, 0),
+    (d.candidates || []).map(c => [dt(c.ts), coin(c.symbol), side(c.side), esc(c.kind || ""), pct(c.atr_pct, 2), c.model_p == null ? "–" : pct(c.model_p, 0),
       c.decision === "sent" ? '<span class="chip accent">sent</span>' : esc((c.decision || "").replace("skipped:", "").replaceAll("_", " ")),
       c.outcome ? statusChip(c.outcome) : '<span class="muted">pending</span>', signed(c.ret_r)]), "No live candidates yet.");
 
@@ -221,11 +225,11 @@ function render(d) {
   const leftCell = m => m.flagged_left == null ? "–" : pct(m.flagged_left, 0);
   const sigCell = m => m.signal_id ? `#S${m.signal_id} ${statusChip(m.signal_status)}` : "–";
   table($("moverLatest"), [["Coin"],["Move 24h","num"],["Straightness R²","num"],["Hours with trend","num"],["Volume vs usual","num"],["Open interest 24h","num"],["Flagged"],["Move left","num"],["Signal"]],
-    (mv && mv.movers || []).map(m => [`<b>${esc(m.symbol)}</b>`, signed(m.ret24 * 100, 1, "%"), num(m.r2, 2), `${m.hours_with}/24`,
+    (mv && mv.movers || []).map(m => [coin(m.symbol), signed(m.ret24 * 100, 1, "%"), num(m.r2, 2), `${m.hours_with}/24`,
       m.rvol24 == null ? "–" : num(m.rvol24, 1) + "x", m.oi_chg24 == null ? "–" : signed(m.oi_chg24 * m.side * 100, 0, "%"),
       flagCell(m), leftCell(m), sigCell(m)]), "No review yet. It runs with the daily report.");
   table($("moverHistory"), [["Day"],["Coin"],["Move 24h","num"],["R²","num"],["Flagged"],["Move left","num"],["Signal"]],
-    (d.movers_history || []).map(m => [esc(m.day), `<b>${esc(m.symbol)}</b>`, signed(m.ret24 * 100, 1, "%"), num(m.r2, 2),
+    (d.movers_history || []).map(m => [esc(m.day), coin(m.symbol), signed(m.ret24 * 100, 1, "%"), num(m.r2, 2),
       flagCell(m), leftCell(m), sigCell(m)]), "No history yet.");
 
   // ---- grinders tab ----
@@ -241,12 +245,23 @@ function render(d) {
   const traitList = ck => { const e = Object.entries(ck || {}); const yes = e.filter(([, v]) => v).map(([k]) => esc(k)); const no = e.filter(([, v]) => !v).map(([k]) => esc(k));
     return `<span title="Missing: ${no.join("; ")}">✓ ${yes.join(" · ") || "none"}</span>`; };
   table($("grindLive"), [["Time"],["Coin"],["Side"],["6h","num"],["24h","num"],["Traits","num"],["Model","num"],["Decision"],["Traits present"]],
-    live.map(r => [dt(r.ts), `<b>${esc(r.symbol)}</b>${r.catalyst ? ' <span class="chip warn">⚡ news</span>' : ""}`, side(r.side),
+    live.map(r => [dt(r.ts), `${coin(r.symbol)}${r.catalyst ? ' <span class="chip warn">⚡ news</span>' : ""}`, side(r.side),
       signed((r.factors.r_6h || 0) * 100, 1, "%"), signed((r.factors.r_24h || 0) * 100, 1, "%"),
       `<b>${r.score}</b>/${Object.keys(r.checks || {}).length}`, r.model_p == null ? "–" : pct(r.model_p, 0),
       r.decision === "sent" ? '<span class="chip accent">paper trade</span>' : (r.decision ? esc(r.decision.replace("skipped:", "").replaceAll("_", " ")) : "–"),
       `<div style="white-space:normal;min-width:360px;max-width:560px;font-size:12px">${traitList(r.checks)}</div>`]), "No early grinds detected in the last 48 hours yet (checked every hour).");
   const gsig = (d.signals || []).filter(s => s.kind === "grind" || s.kind === "grindsig");
+  const ga = d.grind_all || [];
+  const planNames = ga.find(r => r.plans) ? Object.keys(ga.find(r => r.plans).plans) : ["10x", "5x", "3x", "2x"];
+  const planCell = (r, name) => !r.plans ? '<span class="muted">pending</span>' :
+    (r.plans[name] > 0 ? `<span class="pos">✓ ${signed(r.plans[name] * 100, 2, "%")}</span>` : `<span class="neg">✗ ${signed(r.plans[name] * 100, 2, "%")}</span>`);
+  const gr = d.grinds_recorded || {};
+  $("allTitle").textContent = `Every grind detected (last 3 days) — ${ga.length} shown; ${(gr.n || 0).toLocaleString()} recorded in total, ${(gr.labelled || 0).toLocaleString()} with 24h outcomes`;
+  table($("grindAll"), [["Time"],["Coin"],["Side"],["Model score","num"],["Needed","num"],["Sent?"]].concat(planNames.map(n => [esc(n), "num"])).concat([["Best 24h","num"],["Worst 24h","num"]]),
+    ga.map(r => [dt(r.ts), coin(r.symbol), side(r.side), r.model_p == null ? "–" : num(r.model_p, 3), r.threshold == null ? "–" : num(r.threshold, 3),
+      r.decision === "sent" ? '<span class="chip accent">sent</span>' : '<span class="muted">' + esc((r.decision || "–").replace("skipped:", "").split(" (")[0]) + "</span>"]
+      .concat(planNames.map(n => planCell(r, n))).concat([r.best24 == null ? "–" : signed(r.best24 * 100, 1, "%"), r.worst24 == null ? "–" : signed(-r.worst24 * 100, 1, "%")])),
+    "No grinds recorded yet (the scan runs 3 minutes past every hour).");
   table($("planStats"), [["Plan"],["Signals scored","num"],["Won","num"],["Avg per trade","num"],["Avg on margin","num"],["Total on margin","num"]],
     (d.plan_stats || []).map(r => [esc(r.plan), r.n, pct(r.win, 0), signed(r.net * 100, 2, "%"), signed(r.margin * 100, 1, "%"),
       signed(r.total_margin * 100, 0, "%")]), "No grind signal has completed its 24 hours yet.");
@@ -275,7 +290,7 @@ function render(d) {
     $("labSummary").textContent = "The first study runs during set-up and then every night.";
   }
   table($("grindEpisodes"), [["Started"],["Coin"],["Direction"],["Move","num"],["Hours","num"],["Sector"]],
-    (d.grind_episodes || []).map(e => [dt(e.start), `<b>${esc(e.symbol)}</b>`, side(e.side), signed(e.side * e.move * 100, 1, "%"), e.hours, esc(e.tags || "")]),
+    (d.grind_episodes || []).map(e => [dt(e.start), coin(e.symbol), side(e.side), signed(e.side * e.move * 100, 1, "%"), e.hours, esc(e.tags || "")]),
     "The catalogue is rebuilt every night.");
 
   const item = (k, v) => `<div><b>${k}</b>${v}</div>`;

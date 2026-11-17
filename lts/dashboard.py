@@ -166,6 +166,18 @@ def snapshot(db_path: Path) -> dict:
                 r["checks"] = json.loads(r["checks"] or "{}")
                 r["factors"] = json.loads(r["factors"] or "{}")
             out["grind_live"] = live
+        if q("SELECT 1 FROM sqlite_master WHERE type='table' AND name='grind_live'"):
+            cols_gl = {r["name"] for r in q("PRAGMA table_info(grind_live)")}
+            if "outcomes" in cols_gl:
+                allg = q("SELECT symbol, ts, side, model_p, threshold, decision, outcomes FROM grind_live "
+                         "WHERE ts>=? ORDER BY ts DESC LIMIT 2500", (now - 3 * DAY,))
+                for r in allg:
+                    o = json.loads(r.pop("outcomes") or "null") or {}
+                    r["plans"] = o.get("plans")
+                    r["best24"] = (o.get("best") or {}).get("24")
+                    r["worst24"] = (o.get("worst") or {}).get("24")
+                out["grind_all"] = allg
+                out["grinds_recorded"] = q("SELECT COUNT(*) n, SUM(outcomes IS NOT NULL) labelled FROM grind_live")[0]
         if q("SELECT 1 FROM sqlite_master WHERE type='table' AND name='grind_episodes'"):
             out["grind_episodes"] = q("SELECT symbol, side, start, end, move, hours, tags FROM grind_episodes "
                                       "WHERE start>=? ORDER BY start DESC LIMIT 400", (now - 7 * DAY,))

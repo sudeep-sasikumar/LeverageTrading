@@ -296,6 +296,8 @@ class SignalEngine:
         f = c.get("features", {})
         lines.append(f"6h {f.get('r_6h', 0) * 100:+.1f}% · 24h {f.get('r_24h', 0) * 100:+.1f}% · "
                      f"steadiness R² {f.get('sh_r2_6h', float('nan')):.2f}")
+        from .grindsignal import weex_url
+        lines.append(f'<a href="{weex_url(sig["symbol"])}">📈 Open {esc(sig["symbol"])} on Weex</a>')
         lines.append(f"#S{sig['id']}")
         return "\n".join(lines)
 

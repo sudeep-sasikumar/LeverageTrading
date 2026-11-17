@@ -244,3 +244,90 @@ def label_signal_plans(cfg, db: DB) -> int:
                         net * pl["leverage"], now))
         n += 1
     return n
+
+
+# ---- recording every detected grind (sent or not) -------------------------------
+def micro_context(db: DB, sym: str, ts: int) -> dict:
+    """Liquidations and order book around a detection (tables exist once the collector runs)."""
+    out = {}
+    try:
+        for hrs in (1, 6):
+            for side in ("long_liq", "short_liq"):
+                r = db.query("SELECT COALESCE(SUM(usd),0) u, COUNT(*) n FROM liquidations WHERE symbol=? AND side=? "
+                             "AND ts>? AND ts<=?", (sym, side, ts - hrs * HOUR, ts))[0]
+                out[f"{side}_{hrs}h_usd"], out[f"{side}_{hrs}h_n"] = float(r["u"]), int(r["n"])
+        b = db.query("SELECT * FROM book_snapshots WHERE symbol=? AND ts<=? AND ts>? ORDER BY ts DESC LIMIT 1",
+                     (sym, ts, ts - 15 * 60_000))
+        if b:
+            out["book"] = {k: b[0][k] for k in b[0].keys() if k not in ("symbol",)}
+    except Exception:
+        pass
+    return out
+
+
+def _clean(o):
+    if isinstance(o, dict):
+        return {str(k): _clean(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_clean(v) for v in o]
+    if isinstance(o, (np.floating, float)):
+        return None if not math.isfinite(float(o)) else float(o)
+    if isinstance(o, (np.integer,)):
+        return int(o)
+    if isinstance(o, np.bool_):
+        return bool(o)
+    return o
+
+
+def record_grinds(db: DB, rows: list[dict], p_min: float) -> None:
+    """Store everything known about each detected grind, whether or not it was sent."""
+    import json
+    from .grindlab import ensure_live_schema
+    ensure_live_schema(db)
+    for r in rows:
+        factors = {k: v for k, v in r.items() if k not in ("band", "checks") and not isinstance(v, (dict, list))}
+        db.execute("UPDATE grind_live SET all_factors=?, micro=?, threshold=?, model_p=? WHERE symbol=? AND ts=? AND side=?",
+                   (json.dumps(_clean(factors)), json.dumps(_clean(micro_context(db, r["symbol"], r["ts"]))), p_min,
+                    r.get("p"), r["symbol"], r["ts"], r["side"]))
+
+
+def label_grinds(cfg, db: DB) -> int:
+    """24h after each detected grind: how every plan and a target/stop grid would have done, plus best/worst moves."""
+    import json
+    from .grindlab import ensure_live_schema
+    ensure_live_schema(db)
+    gs = cfg.grindsignal
+    now = int(time.time() * 1000)
+    rows = db.query("SELECT symbol, ts, side FROM grind_live WHERE outcomes IS NULL AND ts <= ?",
+                    (now - gs.hours * HOUR - 10 * 60_000,))
+    grid = [{"leverage": 0, "target": t, "stop": st} for t in gs.record_targets for st in gs.record_stops]
+    n = 0
+    for r in rows:
+        post = post_from_db(db, r["symbol"], int(r["ts"]), gs.hours * 12 + 1)
+        if post is None:
+            if now - r["ts"] > 3 * DAY:                       # data never came: stop retrying
+                db.execute("UPDATE grind_live SET outcomes=?, outcome_ts=? WHERE symbol=? AND ts=? AND side=?",
+                           ('{"missing": true}', now, r["symbol"], r["ts"], r["side"]))
+            continue
+        side = np.array([r["side"]])
+        res_plans = plan_outcomes(post[None], side, gs.plans, gs.hours)
+        res_grid = plan_outcomes(post[None], side, grid, gs.hours)
+        entry = float(post[0, 0])
+        hi, lo = post[:, 1].astype(float), post[:, 2].astype(float)
+        fav = (hi / entry - 1) if r["side"] > 0 else (1 - lo / entry)
+        adv = (1 - lo / entry) if r["side"] > 0 else (hi / entry - 1)
+        out = {"entry": entry,
+               "plans": {plan_name(pl): float(res_plans[plan_label(pl)][0]) for pl in gs.plans},
+               "grid": {f"{g['target']:g}|{g['stop']:g}": float(res_grid[plan_label(g)][0]) for g in grid},
+               "best": {h: float(np.nanmax(fav[:h * 12])) for h in (1, 4, 24)},
+               "worst": {h: float(np.nanmax(adv[:h * 12])) for h in (1, 4, 24)},
+               "close_24h": float(r["side"] * (post[-1, 3] / entry - 1))}
+        db.execute("UPDATE grind_live SET outcomes=?, outcome_ts=? WHERE symbol=? AND ts=? AND side=?",
+                   (json.dumps(_clean(out)), now, r["symbol"], r["ts"], r["side"]))
+        n += 1
+    return n
+
+
+def weex_url(symbol: str) -> str:
+    base = symbol[:-4] if symbol.endswith("USDT") else symbol
+    return f"https://www.weex.com/futures/{base}-USDT"

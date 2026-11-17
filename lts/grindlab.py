@@ -703,6 +703,11 @@ CREATE TABLE IF NOT EXISTS grind_live (
     symbol TEXT NOT NULL, ts INTEGER NOT NULL, side INTEGER NOT NULL,
     price REAL, score INTEGER, model_p REAL, catalyst INTEGER,
     checks TEXT, factors TEXT, decision TEXT,
+    all_factors TEXT,                  -- every factor + minute-shape feature known at detection (JSON)
+    micro TEXT,                        -- liquidations / order book around detection (JSON)
+    threshold REAL,                    -- the model score needed to be sent at the time
+    outcomes TEXT,                     -- after 24h: every plan + a target/stop grid + best/worst moves (JSON)
+    outcome_ts INTEGER,
     PRIMARY KEY (symbol, ts, side)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS grind_episodes (
@@ -713,6 +718,16 @@ CREATE TABLE IF NOT EXISTS grind_episodes (
 SHOW_FACTORS = ["r_6h", "r_24h", "r2_6h", "hours_with6", "week_ret", "rs_mkt24", "btc_r168", "dpos_30d", "brk_30d",
                 "levels_ahead_10pct", "room_ahead", "imb_6h", "mkt_r6", "rvol_6h", "funding", "oi_chg_24h",
                 "listing_age_d", "sector_r24", "atr_1h"]
+
+
+def ensure_live_schema(db: DB) -> None:
+    db.conn.executescript(LIVE_SCHEMA)
+    have = {r[1] for r in db.conn.execute("PRAGMA table_info(grind_live)")}
+    for col, typ in (("all_factors", "TEXT"), ("micro", "TEXT"), ("threshold", "REAL"), ("outcomes", "TEXT"),
+                     ("outcome_ts", "INTEGER")):
+        if col not in have:
+            db.conn.execute(f"ALTER TABLE grind_live ADD COLUMN {col} {typ}")
+    db.conn.commit()
 
 
 def bundle_path(cfg) -> str:
@@ -793,7 +808,7 @@ def hourly(cfg, db: DB) -> list[dict]:
     """Refresh the latest hourly bars, detect early grinds, score them, record them. Run in a worker thread."""
     import asyncio
     from .grindlab_data import refresh_recent
-    db.conn.executescript(LIVE_SCHEMA)
+    ensure_live_schema(db)
     syms = [r["symbol"] for r in db.query("SELECT symbol FROM symbols WHERE active=1 AND src='binance'")]
     asyncio.run(refresh_recent(db, syms + ["BTCUSDT"]))
     rows = score_live(live_scan(db), load_bundle(cfg))

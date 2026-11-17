@@ -47,7 +47,8 @@ def test_every_top_signal_is_sent_with_all_three_plans(tmp_path):
     msg = tg.sent[0]
     for pl in cfg.grindsignal.plans:                                       # each plan, with leverage, levels and history
         assert f"<b>{pl['leverage']}x</b>" in msg and f"+{pl['target']:.2%}" in msg and f"−{pl['stop']:.2%}" in msg
-    assert msg.count("history (top 5%") == 3 and "← tracked" in msg and "PAPER" in msg
+    assert msg.count("history (top 5%") == len(cfg.grindsignal.plans) == 4 and "← tracked" in msg and "PAPER" in msg
+    assert 'href="https://www.weex.com/futures/C0-USDT"' in msg                 # one-click chart
     # +2% at 5x after fees is close to +10% on margin
     assert "+9.3% /" in msg
 
@@ -72,8 +73,9 @@ def test_bands_threshold_and_qualification():
 def test_seed_model_has_every_plan_and_scores_a_row():
     cfg = Config()
     bundle = GS.load_bundle(cfg)
-    assert bundle and bundle["source"].startswith("seed") and len(bundle["plans"]) == 3
-    assert all(len(b["plans"]) == 3 for b in bundle["bands"])
+    assert bundle and bundle["source"].startswith("seed") and len(bundle["plans"]) == 4
+    assert all(len(b["plans"]) == 4 for b in bundle["bands"])
+    assert bundle["plans"][0] == {"leverage": 10, "target": 0.01, "stop": 0.0075}
     rng = np.random.default_rng(0)
     c = 10 * np.exp(np.cumsum(0.001 + rng.normal(0, 0.002, 72)))
     o = np.concatenate([[c[0]], c[:-1]])
@@ -98,6 +100,41 @@ def test_every_plan_is_recorded_after_24h(tmp_path):
     finally:
         _t.time = orig
     res = {r["plan"]: dict(r) for r in db.query("SELECT * FROM signal_plans")}
-    assert len(res) == 3
+    assert len(res) == 4
+    ten = next(v for k, v in res.items() if k.startswith("10x"))
+    assert ten["outcome"] == "target" and ten["margin"] > 0.08          # +1% at 10x
     five = next(v for k, v in res.items() if k.startswith("5x"))
     assert five["outcome"] == "target" and five["margin"] > 0.09        # +2% hit -> ~+9% on margin at 5x
+
+
+def test_every_grind_is_recorded_and_labelled_after_24h(tmp_path):
+    import json, time as _t
+    from lts.grindlab import LIVE_SCHEMA, ensure_live_schema
+    cfg, db = Config(), DB(tmp_path / "r.sqlite")
+    ensure_live_schema(db)
+    ts = NOW
+    db.execute("INSERT INTO grind_live(symbol, ts, side, price, score) VALUES ('AUSDT', ?, -1, 10.0, 7)", (ts,))
+    rows = [{"symbol": "AUSDT", "ts": ts, "side": -1, "p": 0.12, "band": {"x": 1}, "checks": {"a": True},
+             "r_6h": 0.05, "sh_r2_6h": 0.8, "price": 10.0}]
+    GS.record_grinds(db, rows, 0.146)
+    rec = db.query("SELECT all_factors, micro, threshold, model_p FROM grind_live")[0]
+    f = json.loads(rec["all_factors"])
+    assert f["sh_r2_6h"] == 0.8 and "band" not in f and rec["threshold"] == 0.146 and rec["model_p"] == 0.12
+    bars = [(ts + i * 300_000, 10.0, 10.0005, 10.0 * (0.985 if i == 40 else 0.9995), 10.0, 1, 10, 1, 0.5, 5)
+            for i in range(300)]
+    db.insert_klines("AUSDT", bars)
+    orig = _t.time
+    _t.time = lambda: (ts + 25 * 3_600_000) / 1000
+    try:
+        assert GS.label_grinds(cfg, db) == 1
+    finally:
+        _t.time = orig
+    o = json.loads(db.query("SELECT outcomes FROM grind_live")[0]["outcomes"])
+    assert set(o["plans"]) == {GS.plan_name(p) for p in cfg.grindsignal.plans}
+    assert o["plans"]["10x +1.00% / -0.75%"] > 0.008                     # short: the -1.5% dip hits +1%
+    assert len(o["grid"]) == len(cfg.grindsignal.record_targets) * len(cfg.grindsignal.record_stops)
+    assert o["best"]["24"] > 0.0149
+
+
+def test_weex_link():
+    assert GS.weex_url("HUMAUSDT") == "https://www.weex.com/futures/HUMA-USDT"

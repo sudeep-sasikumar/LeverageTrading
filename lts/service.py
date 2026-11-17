@@ -216,8 +216,9 @@ class Service:
                     last_hour = now.hour
                     await self.collector.collect_slow()
                     label_matured(self.cfg, self.db)
-                    from .grindsignal import label_signal_plans
+                    from .grindsignal import label_grinds, label_signal_plans
                     label_signal_plans(self.cfg, self.db)
+                    label_grinds(self.cfg, self.db)
                     if now.hour % 6 == 0:
                         await refresh_universe(self.cfg, self.db, self.binance, self.weex)
                 day = now.strftime("%Y-%m-%d")
@@ -326,6 +327,7 @@ class Service:
         pres = [GS.pre_from_db(self.db, r["symbol"], r["ts"]) for r in rows]
         GS.score_rows(rows, pres, self.gs_bundle)
         p_min = GS.threshold(self.gs_bundle, g.top_share)
+        GS.record_grinds(self.db, rows, p_min)
         picks = []
         for r in rows:
             if r["p"] < p_min:

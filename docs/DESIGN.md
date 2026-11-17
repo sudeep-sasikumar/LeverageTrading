@@ -683,3 +683,32 @@ loss, but nothing turned profitable.
   every signal after 24h (`signal_plans`) and shown on the Grinders tab, so live results show
   which plan works.
 - PAPER unless the tracked plan's band qualifies and `grindsignal.live` is turned on.
+
+## 18. 10x plan, top 20%, and a full record of every grind (17 Nov 2026)
+
+**10x plan:** +1% target. The trader set no stop, so the tight stops 0.3%, 0.5% and 0.75% were
+tested on the year. They are indistinguishable: −0.22% to −0.24% per trade on unseen months,
+needing 39–54% wins against 21–42% actual. 0.75% (marginally best) is configured
+(`grindsignal.plans[0]`; −10% of margin at the stop).
+
+**Plans now:** 10x +1% / −0.75%, 5x +2% / −1%, 3x +3.33% / −1%, 2x +5% / −0.75% (tracked).
+
+**Sending:** the model's top 20% (score ≥ 0.146 with the seed model, about 30 a day), as the
+trader chose. A percentile of a weak model is not a sound filter; the live record decides
+later.
+
+**Recording every detected grind** (`grind_live`, sent or not):
+- the model score and the threshold at the time, and the decision;
+- every hourly/daily factor and all 50 minute-shape features (`all_factors`);
+- liquidations in the past 1h and 6h by side, and the latest order-book snapshot (`micro`);
+- after 24h (`outcomes`): every plan's result, a 5 × 6 target/stop grid (+1/1.5/2/3.33/5%
+  × 0.3/0.5/0.75/1/1.5/2%), best and worst move after 1h/4h/24h, and the 24h close.
+
+Any filter, threshold, plan or stop can be re-tested later on live data without re-collecting
+anything.
+
+**Dashboard:**
+- The Grinders tab lists every grind of the last 3 days with its score, the threshold, whether
+  it was sent, and each plan's outcome.
+- Every coin name in every table links to its Weex perpetual page.
+- Telegram signals carry the same link.
