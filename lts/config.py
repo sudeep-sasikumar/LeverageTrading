@@ -99,15 +99,20 @@ class GrindLab:
 
 @dataclass
 class GrindSignal:
-    """Every early grind scored by the pattern-recognition model; ALL above min_p are sent (no daily cap)."""
+    """Every early grind scored by the pattern-recognition model; the top `top_share` are ALL sent (no daily cap).
+    Each signal carries the trader's three plans (+10% on margin at target); the primary plan is the one tracked
+    as the signal's own result, and every plan's outcome is recorded too (docs/DESIGN.md section 17)."""
     enabled: bool = True
-    target: float = 0.01                 # +1% in the coin (= ~+10% on margin at 10x)
-    stop: float = 0.01
+    plans: list = field(default_factory=lambda: [
+        {"leverage": 5, "target": 0.02, "stop": 0.01},
+        {"leverage": 3, "target": 0.0333, "stop": 0.01},
+        {"leverage": 2, "target": 0.05, "stop": 0.0075},
+    ])
+    primary: int = 2                     # index of the tracked plan (2x +5% / -0.75% held up best on unseen months)
+    top_share: float = 0.05              # send the best-scoring 5% of grinds (~7-8 a day)
     hours: int = 24
-    min_p: float = 0.60                  # model probability needed to send a signal
-    max_leverage: int = 10
     min_days_for_own_model: float = 60.0 # retrain on this server's data once it holds this much 5m history
-    live: bool = False                   # signals stay PAPER unless their band qualifies AND this is switched on
+    live: bool = False                   # PAPER unless the primary plan's band qualifies AND this is switched on
 
 
 @dataclass

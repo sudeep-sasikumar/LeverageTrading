@@ -101,12 +101,16 @@ class SignalEngine:
         if cand.get("kind") == "grindsig":
             g = self.cfg.grindsignal
             tc = self.cfg.trade
-            cost = tc.taker_fee + tc.slippage + tc.maker_fee
-            lev = int(min(g.max_leverage, max(1, math.ceil(0.10 / max(g.target - cost, 1e-6)))))
-            cand["plan"] = plan_from_stop(tc, g.stop, g.target / g.stop, self.cfg.risk.risk_per_trade, g.hours * 12)
-            cand["plan"]["leverage"] = lev
-            cand["plan"]["gain_margin"] = lev * (g.target - cost)
-            cand["plan"]["loss_margin"] = lev * (g.stop + 2 * (tc.taker_fee + tc.slippage))
+            cost_win = tc.taker_fee + tc.slippage + tc.maker_fee
+            cost_loss = 2 * (tc.taker_fee + tc.slippage)
+            cand["all_plans"] = [{**pl, "gain_margin": pl["leverage"] * (pl["target"] - cost_win),
+                                  "loss_margin": pl["leverage"] * (pl["stop"] + cost_loss)} for pl in g.plans]
+            pp = g.plans[g.primary]                                   # the tracked plan
+            cand["plan"] = plan_from_stop(tc, pp["stop"], pp["target"] / pp["stop"], self.cfg.risk.risk_per_trade,
+                                          g.hours * 12)
+            cand["plan"]["leverage"] = pp["leverage"]
+            cand["plan"]["gain_margin"] = cand["all_plans"][g.primary]["gain_margin"]
+            cand["plan"]["loss_margin"] = cand["all_plans"][g.primary]["loss_margin"]
             cand["plan"]["margin_frac"] = min(1.0, self.cfg.risk.risk_per_trade / cand["plan"]["loss_margin"])
             cand["rule_score"] = cand["score"] = float(cand["p_model"])
             cand["p"], cand["ev_r"] = cand["p_model"], None
@@ -151,9 +155,12 @@ class SignalEngine:
         sc = self.cfg.signal
         if cand.get("kind") == "grindsig":
             from .grindsignal import qualifies
-            if cand["score"] < self.cfg.grindsignal.min_p:
+            g = self.cfg.grindsignal
+            if cand["score"] < cand.get("p_min", 1.0):
                 return None
-            return "G" if (self.cfg.grindsignal.live and qualifies(cand.get("band"))) else "P"
+            band_plans = (cand.get("band") or {}).get("plans") or []
+            primary = band_plans[g.primary] if len(band_plans) > g.primary else None
+            return "G" if (g.live and qualifies(primary)) else "P"
         if cand.get("kind") == "daily":
             return ("D" if self.cfg.aim.live else "P") if cand["score"] >= self.cfg.aim.threshold else None
         if cand.get("kind") == "grindlab":
@@ -267,20 +274,25 @@ class SignalEngine:
     def _grindsig_message(self, sig, c, plan, prec, icon, word) -> str:
         g = self.cfg.grindsignal
         b = c.get("band") or {}
-        lines = [f"{icon} <b>GRIND {word} {esc(sig['symbol'])}</b> · model {c['p_model']:.0%}"
+        hist = {(h["leverage"], h["target"], h["stop"]): h for h in b.get("plans", [])}
+        top = f"top {b['top']:.0%} of grinds" if b.get("top", 1) < 1 else "all grinds"
+        lines = [f"{icon} <b>GRIND {word} {esc(sig['symbol'])}</b> · model score {c['p_model']:.2f} ({top})"
                  + (" · PAPER" if sig["grade"] == "P" else "")]
         if sig["grade"] == "P":
-            lines.append("📝 <i>Unproven: signals in this probability band have not shown an edge after fees on unseen "
-                         "months. Your call.</i>")
-        lines += ["",
-                  f"Entry  <code>{fmt_price(sig['entry'], prec)}</code>  (market now)",
-                  f"Target <code>{fmt_price(sig['tp'], prec)}</code>  (+{g.target:.1%})   "
-                  f"Stop <code>{fmt_price(sig['sl'], prec)}</code>  (−{g.stop:.1%})   max {g.hours}h",
-                  f"{plan['leverage']}x → target ≈ <b>+{plan['gain_margin']:.1%}</b> on margin, stop ≈ −{plan['loss_margin']:.1%} "
-                  f"(5x: +{plan['gain_margin'] / plan['leverage'] * 5:.1%} / −{plan['loss_margin'] / plan['leverage'] * 5:.1%})"]
-        if b:
-            lines.append(f"History of signals scoring ≥{b['p_min']:.0%} (unseen months): won {b['win']:.0%}, "
-                         f"{b['net'] * 100:+.2f}% per trade after fees, ~{b['per_day']:.1f}/day")
+            lines.append("📝 <i>Unproven: no plan has shown an edge after fees on unseen months. Your call.</i>")
+        lines += ["", f"Entry <code>{fmt_price(sig['entry'], prec)}</code> (market now) · close after {g.hours}h if no exit", ""]
+        s = sig["side"]
+        for i, pl in enumerate(c.get("all_plans", [])):
+            tp = sig["entry"] * (1 + s * pl["target"])
+            sl = sig["entry"] * (1 - s * pl["stop"])
+            mark = " ← tracked" if i == g.primary else ""
+            lines.append(f"<b>{pl['leverage']}x</b>: target <code>{fmt_price(tp, prec)}</code> (+{pl['target']:.2%}) · "
+                         f"stop <code>{fmt_price(sl, prec)}</code> (−{pl['stop']:.2%}) → +{pl['gain_margin']:.1%} / "
+                         f"−{pl['loss_margin']:.1%} on margin{mark}")
+            h = hist.get((pl["leverage"], pl["target"], pl["stop"]))
+            if h:
+                lines.append(f"     history ({top}, unseen months): won {h['win']:.0%}, {h['net'] * 100:+.2f}% per trade, "
+                             f"{h['margin'] * 100:+.1f}% margin avg")
         f = c.get("features", {})
         lines.append(f"6h {f.get('r_6h', 0) * 100:+.1f}% · 24h {f.get('r_24h', 0) * 100:+.1f}% · "
                      f"steadiness R² {f.get('sh_r2_6h', float('nan')):.2f}")

@@ -150,6 +150,9 @@ def snapshot(db_path: Path) -> dict:
             "grindsig": _stats([r for r in closed if r["kind"] == "grindsig"]),
         }
         out["movers"] = kv.get("movers_latest")
+        if q("SELECT 1 FROM sqlite_master WHERE type='table' AND name='signal_plans'"):
+            out["plan_stats"] = q("""SELECT plan, leverage, COUNT(*) n, AVG(net > 0) win, AVG(net) net, AVG(margin) margin,
+                                     SUM(margin) total_margin FROM signal_plans GROUP BY plan ORDER BY leverage DESC""")
         if q("SELECT 1 FROM sqlite_master WHERE type='table' AND name='liquidations'"):
             liq = q("SELECT COUNT(*) n, COALESCE(SUM(usd), 0) usd, MAX(ts) last FROM liquidations WHERE ts>=?", (now - DAY,))[0]
             books = q("SELECT COUNT(*) n, COUNT(DISTINCT symbol) s, MAX(ts) last FROM book_snapshots WHERE ts>=?", (now - DAY,))[0]

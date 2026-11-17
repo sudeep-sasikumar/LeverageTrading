@@ -1,11 +1,14 @@
-"""Grind signals: every early grind, scored by a pattern-recognition model, sent when its probability of
-reaching the target before the stop clears the threshold (no daily cap - the trader chooses).
+"""Grind signals: every early grind is scored by a pattern-recognition model; the best-scoring share is sent
+(no daily cap - the trader chooses), each with the trader's three plans:
 
-Model inputs: the hourly/daily grind-lab factors (lts.grindlab) + the minute-level shape of the last 6 hours
-(lts.grindshape). Label: +TARGET before -STOP within 24h on 5-minute bars, net of fees (lts.aim).
-Training: nightly on the VPS's own stored data (5m klines are kept 120 days); until there is enough, a
-seed model trained on a year of history (shipped in lts/models/) is used. Each bundle carries a table of how
-each probability band actually did on unseen months, quoted in every signal.
+    5x  : +2%     target, tight stop    (+10% on margin at target)
+    3x  : +3.33%  target, tight stop
+    2x  : +5%     target, tight stop
+
+Model inputs: the hourly/daily grind-lab factors are available, but the shipped model uses the minute-level
+shape of the last 6 hours (lts.grindshape), the only input with any predictive power on unseen months
+(docs/DESIGN.md sections 16-17). Outcomes: 5-minute bars, 24h limit, Weex fees, stop first if a bar touches
+both. Every bundle carries, per score band, how EACH plan did on unseen months; signals quote it.
 """
 from __future__ import annotations
 
@@ -24,9 +27,18 @@ from .grindshape import BARS, shape_features
 log = logging.getLogger("lts.grindsignal")
 DAY, HOUR, BAR = 86_400_000, 3_600_000, 300_000
 SEED_PATH = Path(__file__).parent / "models" / "grind_seed.joblib"
-BANDS = (0.5, 0.55, 0.6, 0.65, 0.7, 0.75)
+TOP_SHARES = (1.0, 0.2, 0.1, 0.05, 0.02)        # score bands: all grinds, top 20%, ..., top 2%
 
 
+def plan_label(plan: dict) -> str:
+    return f"net_{plan['target']:g}_{plan['stop']:g}"
+
+
+def plan_name(plan: dict) -> str:
+    return f"{plan['leverage']}x +{plan['target']:.2%} / -{plan['stop']:.2%}"
+
+
+# ---- 5-minute data -----------------------------------------------------------
 def pre_from_db(db: DB, sym: str, ts: int) -> np.ndarray | None:
     """The 72 five-minute bars before ts: o,h,l,c,qv,tbqv (NaN-padded at the front if short)."""
     k = db.frame("SELECT ts,o,h,l,c,qv,tbqv FROM klines WHERE symbol=? AND ts>=? AND ts<? ORDER BY ts",
@@ -49,23 +61,17 @@ def post_from_db(db: DB, sym: str, ts: int, bars: int = 289) -> np.ndarray | Non
     return arr
 
 
-def label_name(target: float, stop: float) -> str:
-    return f"net_{target:g}_{stop:g}"
-
-
-def add_labels(ev: pd.DataFrame, post: np.ndarray, target: float, stop: float, hours: int = 24) -> pd.DataFrame:
-    net, _ = A.outcomes(post, ev["side"].to_numpy())[(target, stop, hours)] if (target in A.TARGETS and stop in A.STOPS) \
-        else _custom(post, ev["side"].to_numpy(), target, stop, hours)
-    return ev.assign(**{label_name(target, stop): net})
-
-
-def _custom(post, side, target, stop, hours):
+def plan_outcomes(post: np.ndarray, side: np.ndarray, plans: list[dict], hours: int = 24) -> dict:
+    """{label: net % array} for each plan (entry = first bar's open)."""
     old = (A.TARGETS, A.STOPS, A.HOURS)
-    A.TARGETS, A.STOPS, A.HOURS = (target,), (stop,), (hours,)
+    out = {}
     try:
-        return A.outcomes(post, side)[(target, stop, hours)]
+        for p in plans:
+            A.TARGETS, A.STOPS, A.HOURS = (p["target"],), (p["stop"],), (hours,)
+            out[plan_label(p)] = A.outcomes(post, side)[(p["target"], p["stop"], hours)][0]
     finally:
         A.TARGETS, A.STOPS, A.HOURS = old
+    return out
 
 
 def feature_frame(ev: pd.DataFrame, pre: np.ndarray) -> pd.DataFrame:
@@ -73,15 +79,18 @@ def feature_frame(ev: pd.DataFrame, pre: np.ndarray) -> pd.DataFrame:
     return pd.concat([ev, sh], axis=1)
 
 
+# ---- training -----------------------------------------------------------------
 def _model():
     from sklearn.ensemble import HistGradientBoostingClassifier
-    return HistGradientBoostingClassifier(max_iter=300, learning_rate=0.04, max_depth=4, min_samples_leaf=100,
+    return HistGradientBoostingClassifier(max_iter=250, learning_rate=0.04, max_depth=4, min_samples_leaf=100,
                                           l2_regularization=5.0, random_state=7)
 
 
-def train(df: pd.DataFrame, feats: list[str], label: str, min_train_months: int = 3) -> dict:
-    """Monthly walk-forward (for the honest band table), then a final model on everything."""
+def train(df: pd.DataFrame, feats: list[str], plans: list[dict], primary: int, min_train_months: int = 3) -> dict:
+    """Monthly walk-forward for the honest band tables (every plan), then a final model on everything.
+    The model learns the PRIMARY plan's outcome; all plans are reported per band."""
     df = df.sort_values("ts").reset_index(drop=True)
+    label = plan_label(plans[primary])
     y = (df[label] > 0).astype(int).to_numpy()
     month = pd.to_datetime(df["ts"], unit="ms").dt.strftime("%Y-%m")
     months = sorted(month.unique())
@@ -93,35 +102,40 @@ def train(df: pd.DataFrame, feats: list[str], label: str, min_train_months: int 
         if tr.sum() < 2000 or len(np.unique(y[tr])) < 2:
             continue
         p[te] = _model().fit(df.loc[tr, feats].to_numpy(float), y[tr]).predict_proba(df.loc[te, feats].to_numpy(float))[:, 1]
-    bands = band_table(df.assign(p=p, month=month), label)
+    bands = band_tables(df.assign(p=p, month=month), plans)
     final = _model().fit(df[feats].to_numpy(float), y)
-    return {"model": final, "features": feats, "label": label, "bands": bands, "trained_ts": int(time.time() * 1000),
-            "n": int(len(df)), "base_win": float((df[label] > 0).mean()), "base_net": float(df[label].mean()),
-            "oos_months": int(np.isfinite(p).any() and month[np.isfinite(p)].nunique()),
+    return {"model": final, "features": feats, "plans": plans, "primary": primary, "bands": bands,
+            "trained_ts": int(time.time() * 1000), "n": int(len(df)),
+            "oos_months": int(month[np.isfinite(p)].nunique()) if np.isfinite(p).any() else 0,
             "data_from": int(df["ts"].min()), "data_to": int(df["ts"].max())}
 
 
-def band_table(d: pd.DataFrame, label: str) -> list[dict]:
+def band_tables(d: pd.DataFrame, plans: list[dict]) -> list[dict]:
     d = d[np.isfinite(d["p"])]
     if d.empty:
         return []
     days = max((d["ts"].max() - d["ts"].min()) / DAY, 1.0)
-    rows = []
-    for thr in (0.0,) + BANDS:
+    out = []
+    for share in TOP_SHARES:
+        thr = float(d["p"].quantile(1 - share)) if share < 1 else 0.0
         g = d[d["p"] >= thr]
         if len(g) < 30:
             continue
-        net = g[label]
-        daily = net.groupby(g["ts"] // DAY).mean()
-        t = float(daily.mean() / (daily.std(ddof=1) / math.sqrt(len(daily)))) if len(daily) > 5 and daily.std() > 0 else 0.0
-        mon = net.groupby(g["month"]).mean()
-        rows.append({"p_min": thr, "signals": int(len(g)), "per_day": float(len(g) / days), "win": float((net > 0).mean()),
-                     "net": float(net.mean()), "t_day": t, "months_pos": float((mon > 0).mean()), "n_months": int(len(mon))})
-    return rows
+        rows = []
+        for pl in plans:
+            net = g[plan_label(pl)].dropna()
+            daily = net.groupby(g.loc[net.index, "ts"] // DAY).mean()
+            t = float(daily.mean() / (daily.std(ddof=1) / math.sqrt(len(daily)))) if len(daily) > 5 and daily.std() > 0 else 0.0
+            mon = net.groupby(g.loc[net.index, "month"]).mean()
+            rows.append({**pl, "win": float((net > 0).mean()), "net": float(net.mean()),
+                         "margin": float(net.mean() * pl["leverage"]), "t_day": t,
+                         "months_pos": float((mon > 0).mean()), "n_months": int(len(mon))})
+        out.append({"top": share, "p_min": thr, "signals": int(len(g)), "per_day": float(len(g) / days), "plans": rows})
+    return out
 
 
 def band_for(bundle: dict, p: float) -> dict | None:
-    """The highest band at or below p (how signals like this did on unseen months)."""
+    """The narrowest band this score falls in (how signals like it did on unseen months)."""
     best = None
     for b in bundle.get("bands", []):
         if p >= b["p_min"]:
@@ -129,9 +143,17 @@ def band_for(bundle: dict, p: float) -> dict | None:
     return best
 
 
-def qualifies(b: dict | None) -> bool:
+def threshold(bundle: dict, top_share: float) -> float:
+    for b in bundle.get("bands", []):
+        if abs(b["top"] - top_share) < 1e-9:
+            return b["p_min"]
+    return 1.0
+
+
+def qualifies(plan_stats: dict | None) -> bool:
     """Pre-registered: an edge only if profitable after fees with t >= 3, >= 70% of unseen months positive."""
-    return bool(b and b["net"] > 0 and b["t_day"] >= 3 and b["months_pos"] >= 0.7 and b["n_months"] >= 4)
+    return bool(plan_stats and plan_stats["net"] > 0 and plan_stats["t_day"] >= 3 and plan_stats["months_pos"] >= 0.7
+                and plan_stats["n_months"] >= 4)
 
 
 def score_rows(rows: list[dict], pres: list[np.ndarray | None], bundle: dict) -> list[dict]:
@@ -149,6 +171,8 @@ def load_bundle(cfg) -> dict | None:
     for p in (live, SEED_PATH):
         if p.exists():
             b = joblib.load(p)
+            if "plans" not in b:                 # an older single-plan bundle: ignore it
+                continue
             b["source"] = "trained on this server" if p == live else "seed (one year of history)"
             return b
     return None
@@ -173,16 +197,50 @@ def nightly(cfg, db: DB) -> dict | None:
             continue
         pres.append(pre), posts.append(post), keep.append(i)
     ev = ev.loc[keep].reset_index(drop=True)
-    ev = add_labels(ev, np.stack(posts), gs.target, gs.stop)
+    ev = ev.assign(**plan_outcomes(np.stack(posts), ev["side"].to_numpy(), gs.plans, gs.hours))
     df = feature_frame(ev, np.stack(pres))
-    label = label_name(gs.target, gs.stop)
-    df = df[np.isfinite(df[label])]
-    seed = load_bundle(cfg) or {}
-    feats = [f for f in (seed.get("features") or []) if f in df] or \
-        [c for c in df.columns if c.startswith("sh_") or c in grindlab.model_features(df)]
-    feats = grindlab.usable(df, feats)
-    bundle = train(df, feats, label)
+    df = df[np.isfinite(df[plan_label(gs.plans[gs.primary])])]
+    feats = grindlab.usable(df, [c for c in df.columns if c.startswith("sh_")])
+    bundle = train(df, feats, gs.plans, gs.primary)
     path = cfg.path(cfg.storage.model_dir) / "grindsignal.joblib"
     path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(bundle, path, compress=3)
     return bundle
+
+
+# ---- tracking every plan of every signal --------------------------------------
+PLAN_SCHEMA = """
+CREATE TABLE IF NOT EXISTS signal_plans (
+    signal_id INTEGER NOT NULL, plan TEXT NOT NULL, leverage INTEGER, target REAL, stop REAL,
+    outcome TEXT, net REAL, margin REAL, done_ts INTEGER,
+    PRIMARY KEY (signal_id, plan)
+) WITHOUT ROWID;
+"""
+
+
+def label_signal_plans(cfg, db: DB) -> int:
+    """After 24h, record how each of the three plans would have done for every grind signal."""
+    db.conn.executescript(PLAN_SCHEMA)
+    gs = cfg.grindsignal
+    now = int(time.time() * 1000)
+    rows = db.query("""SELECT s.id, s.symbol, s.side, s.ts, s.entry FROM signals s
+                       WHERE s.kind='grindsig' AND s.ts <= ?
+                       AND NOT EXISTS (SELECT 1 FROM signal_plans p WHERE p.signal_id = s.id)""",
+                    (now - gs.hours * HOUR - 10 * 60_000,))
+    n = 0
+    for r in rows:
+        start = (r["ts"] // BAR + 1) * BAR                    # first full 5m bar after the signal
+        post = post_from_db(db, r["symbol"], start, gs.hours * 12 + 1)
+        if post is None:
+            continue
+        post = post.copy()
+        post[0, 0] = r["entry"]                               # the signal's own entry price
+        res = plan_outcomes(post[None], np.array([r["side"]]), gs.plans, gs.hours)
+        for pl in gs.plans:
+            net = float(res[plan_label(pl)][0])
+            outcome = "target" if net >= pl["target"] - 0.003 else ("stop" if net <= -pl["stop"] else "time")
+            db.execute("INSERT OR REPLACE INTO signal_plans VALUES (?,?,?,?,?,?,?,?,?)",
+                       (r["id"], plan_name(pl), pl["leverage"], pl["target"], pl["stop"], outcome, net,
+                        net * pl["leverage"], now))
+        n += 1
+    return n

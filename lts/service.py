@@ -216,6 +216,8 @@ class Service:
                     last_hour = now.hour
                     await self.collector.collect_slow()
                     label_matured(self.cfg, self.db)
+                    from .grindsignal import label_signal_plans
+                    label_signal_plans(self.cfg, self.db)
                     if now.hour % 6 == 0:
                         await refresh_universe(self.cfg, self.db, self.binance, self.weex)
                 day = now.strftime("%Y-%m-%d")
@@ -322,13 +324,15 @@ class Service:
             return
         pres = [GS.pre_from_db(self.db, r["symbol"], r["ts"]) for r in rows]
         GS.score_rows(rows, pres, self.gs_bundle)
+        p_min = GS.threshold(self.gs_bundle, g.top_share)
         picks = []
         for r in rows:
-            if r["p"] < g.min_p:
+            if r["p"] < p_min:
                 continue
             m = meta.get(r["symbol"], {})
             picks.append({"symbol": r["symbol"], "side": r["side"], "ts": r["ts"], "ref_price": r["price"],
                           "atr_pct": r.get("atr_1h"), "kind": "grindsig", "p_model": r["p"], "band": r["band"],
+                          "p_min": p_min,
                           "on_weex": bool(m.get("on_weex")), "src": "binance", "price_precision": m.get("price_precision"),
                           "features": {k: r.get(k) for k in ("r_6h", "r_24h", "sh_r2_6h") if r.get(k) is not None}})
         for p in picks:
@@ -341,7 +345,7 @@ class Service:
                             (r["p"], r["symbol"], r["ts"], r["side"]))
         if picks:
             await self.engine.decide(picks, None, int(time.time() * 1000))
-        log.info("grind signals: %d early grinds scored, %d above %.0f%%, %d sent", len(rows), len(picks), g.min_p * 100,
+        log.info("grind signals: %d early grinds scored, %d in the top %.0f%%, %d sent", len(rows), len(picks), g.top_share * 100,
                  sum(1 for p in picks if p.get("decision") == "sent"))
 
     async def daily_pick(self, rows: list[dict], meta: dict) -> None:
@@ -391,10 +395,12 @@ class Service:
             b = await asyncio.to_thread(retrain_signals)
             if b:
                 self.gs_bundle = None                     # reload on the next hour
-                top = (b.get("bands") or [{}])[-1]
-                await self.tg.send(f"<b>Grind model retrained</b> on {b['n']:,} grinds from this server's data. "
-                                   f"Top band on unseen months: won {top.get('win', 0):.0%}, "
-                                   f"{top.get('net', 0) * 100:+.2f}% per trade.")
+                from .grindsignal import plan_name
+                sent = next((x for x in b.get("bands", []) if abs(x["top"] - self.cfg.grindsignal.top_share) < 1e-9), None)
+                lines = [f"<b>Grind model retrained</b> on {b['n']:,} grinds from this server's data."]
+                for h in (sent or {}).get("plans", []):
+                    lines.append(f"  {plan_name(h)}: won {h['win']:.0%}, {h['net'] * 100:+.2f}% per trade (unseen months)")
+                await self.tg.send("\n".join(lines))
         except Exception:
             log.exception("grind model retraining failed")
 

@@ -641,3 +641,45 @@ only, and both together.
   Once the server holds 60 days of its own 5-minute data, the model is retrained nightly on it
   and its band table refreshed.
 - **Superseded:** the daily-trade track (`aim`) and grind-lab paper trades are switched off.
+
+## 17. The trader's plans: +10% on margin at 5x / 3x / 2x with tight stops (17 Nov 2026)
+
+Section 16 used a +1% / −1% bracket (10x). That was my choice, not the trader's. The trader's
+plans are +10% on margin at **5x (+2% move), 3x (+3.33%) or 2x (+5%)**, each with a **tight
+stop** so losers are cut fast.
+
+**Test:**
+- the same 63,528 grinds, 5-minute paths, 24h limit, Weex fees, stop counted first;
+- stops 0.3%, 0.5%, 0.75% and 1%;
+- 11 unseen months, by monthly walk-forward.
+
+**All grinds, no filter:** every combination lost almost exactly the fee, about −0.23% per
+trade. Before fees, any bracket is about zero.
+
+| Plan | Win rate needed (0.3 / 0.5 / 0.75 / 1% stop) | Actual |
+|---|---|---|
+| 5x, +2% | 23 / 29 / 35 / 40% | 13 / 19 / 27 / 33% |
+| 3x, +3.33% | 15 / 19 / 24 / 28% | 8 / 13 / 18 / 23% |
+| 2x, +5% | 10 / 13 / 17 / 20% | 6 / 9 / 14 / 18% |
+
+Tight stops on altcoins are mostly hit by ordinary 5-minute noise: at 0.3–0.5% the median
+trade lasts 0–10 minutes.
+
+**With the minute-shape model's top-scored grinds:** the higher the score, the smaller the
+loss, but nothing turned profitable.
+- Best: **2x, +5% / −0.75% in the top 2%** (about 3 a day): −0.01% per trade, positive in 36%
+  of months.
+- 5x, +2% / −1% in the top 2%: −0.08%. 3x, +3.33% / −1%: −0.10%.
+- No combination qualified.
+
+**What runs (`config.grindsignal`):**
+- Every grind in the model's **top 5%** (about 7–8 a day) is sent, with all three plans:
+  - 5x: +2% / −1%
+  - 3x: +3.33% / −1%
+  - 2x: +5% / −0.75%
+- These are the stops that held up best per plan. Each plan shows its margin result at
+  target and stop, plus its own record in that score band on unseen months.
+- The 2x plan is tracked as the signal's result. **Every plan's outcome is recorded** for
+  every signal after 24h (`signal_plans`) and shown on the Grinders tab, so live results show
+  which plan works.
+- PAPER unless the tracked plan's band qualifies and `grindsignal.live` is turned on.
