@@ -544,3 +544,47 @@ on volatile altcoins. Nothing from this study was added to live signals.
 
 The data most directly behind sweeps and stop hunts — liquidations and order-book depth —
 has no free history, so it has to be collected going forward before it can be studied.
+
+## 15. The aim, tested directly: one grind trade a day for ~10% on margin (17 Nov 2026)
+
+The project's goal is **one trade a day worth about 10% on margin**: a +1% move at 10x, or
++2% at 5x. Sections 12–14 drifted to larger targets. This tests the goal itself.
+
+**Setup:**
+- **Candidates:** 63,528 early-grind moments over 389 days (`lts.grindlab`), each followed for
+  24h on **5-minute** bars (`lts.aim`). A 5-minute bar touching both target and stop counts as
+  a loss.
+- **One trade a day, decided in real time:** the first moment of the UTC day whose score
+  clears a threshold, and no second trade while one is open.
+- **Fees:** Weex taker on entry, stops and time exits; maker on the take-profit.
+- **Grid (fixed in advance):** targets +1%, +1.5%, +2%; stops 0.7%, 1%, 1.5%, 2%, 3%; time
+  limits 8h and 24h; rankings: first of the day, 12-trait checklist, smoothness, news
+  catalyst, and a model trained only on discovery days; five thresholds.
+- **Two stages:** selection on 269 days, a single frozen test on the last 120.
+
+**Results:**
+- **A grind reaching +1% is a coin flip against an equal stop.** +1% before −1% happened 50%
+  of the time (48% in the last 4 months), netting −0.20% to −0.24% per trade after fees. Every
+  target/stop pair sat at about −0.16% to −0.22% per trade unselected: the odds are fair and
+  fees decide the sign.
+- **The checklist, smoothness and "first of the day" rankings added nothing.** Only the model
+  helped in discovery: its top 5% with +1.5% target / −3% stop won 76% and made +0.32% per
+  trade, at about one trade every two days and t = 1.95. **No combination passed** (t ≥ 3, 60%
+  of months positive, a trade at least every other day).
+- **On the unseen 4 months, that best combination lost:** 64% wins, −0.31% per trade (−1.6%
+  of margin at 5x), worst drawdown −18%. All eight top discovery combinations were negative
+  there.
+
+**Conclusion:** with price, volume, flow, funding, open interest, sector and news data, the
+"one +1–2% grind a day" trade is about break-even before fees and negative after them.
+Leverage multiplies that. The grind is a real, frequent move, but its continuation from the
+moment it can be seen is close to a fair coin over 1–2% distances.
+
+**What runs:**
+- **Daily-trade track** (`config.aim`): each hour, the first early grind of the day with ≥ 8
+  of 12 traits becomes the day's trade (+1% target, −1% stop, 24h, 10x), sent to Telegram as
+  🎯 DAILY TRADE and tracked on the dashboard.
+- It is **paper** (`aim.live: false`) so the aim is measured live every day. It becomes
+  tradeable only if its forward record turns positive with significance.
+- **New data accumulating:** liquidations and order-book depth (section 14) are the main
+  candidates to change this result.

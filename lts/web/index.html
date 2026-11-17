@@ -172,12 +172,13 @@ function render(d) {
     tile("Signals today", d.sent_today ?? 0, `${(d.open || []).length} open now`),
     statTile("Today", st.today), statTile("Last 7 days", st.d7), statTile("Last 30 days", st.d30),
     statTile("Paper signals (all)", st.paper), statTile("Real signals (all)", st.real),
+    statTile("🎯 Daily trade (aim: +1%/day)", st.daily),
     statTile("Momentum setup (all)", st.momentum), statTile("Grind setup (all, paper)", st.grind),
     tile("Candidates scanned 24h", d.data ? d.data.candidates_24h : "–", d.data ? `${d.data.labelled.toLocaleString()} labelled in total` : ""),
   ].join("");
 
   const sigHead = [["Time"],["Coin"],["Side"],["Type"],["Entry","num"],["Stop","num"],["Target","num"],["Lev","num"],["Status"],["Result","num"],["On margin","num"],["Closed"]];
-  const sigRow = s => [dt(s.ts), `<b>${esc(s.symbol)}</b>`, side(s.side), grade(s.grade) + (s.kind === "grind" ? ' <span class="chip">grind</span>' : ""), price(s.entry),
+  const sigRow = s => [dt(s.ts), `<b>${esc(s.symbol)}</b>`, side(s.side), grade(s.grade) + (s.kind === "grind" ? ' <span class="chip">grind</span>' : s.kind === "daily" ? ' <span class="chip accent">🎯 daily</span>' : ""), price(s.entry),
     `${price(s.sl)} <span class="muted">(${pct(s.sl_pct, 2)})</span>`, `${price(s.tp)} <span class="muted">(${pct(s.tp_pct, 2)})</span>`,
     s.leverage + "x", statusChip(s.status), signed(s.ret_r), s.ret_margin == null ? "–" : signed(s.ret_margin * 100, 1, "%"), dt(s.exit_ts)];
   table($("open"), sigHead.slice(0, 9).concat([["Best so far","num"],["Worst so far","num"],["Time stop"]]),

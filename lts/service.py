@@ -300,12 +300,37 @@ class Service:
             if c["book"] and c["ref_price"]:
                 c["features"]["weex_dev_bps"] = (c["book"]["mid"] / c["ref_price"] - 1) * 1e4 * c["side"]
         await self.engine.decide(worth, None, int(time.time() * 1000))
+        await self.daily_pick(rows, meta)
         for c in cands:
             self.db.execute("UPDATE grind_live SET decision=? WHERE symbol=? AND ts=? AND side=?",
                             (c.get("decision") or "skipped:below_score", c["symbol"], c["ts"], c["side"]))
         log.info("grind lab hour: %d early grinds, %d with enough traits, %d sent", len(cands), len(worth),
                  sum(1 for c in worth if c.get("decision") == "sent"))
         return cands
+
+    async def daily_pick(self, rows: list[dict], meta: dict) -> None:
+        """The project's aim: the first early grind of the day that clears the daily-trade threshold."""
+        from .aim import live_score
+        a = self.cfg.aim
+        if not a.enabled or not rows:
+            return
+        picks = []
+        for r in rows:
+            m = meta.get(r["symbol"], {})
+            picks.append({"symbol": r["symbol"], "side": r["side"], "ts": r["ts"], "ref_price": r["price"],
+                          "atr_pct": r.get("atr_1h"), "kind": "daily", "aim_score": live_score(r, a.ranker),
+                          "on_weex": bool(m.get("on_weex")), "src": "binance", "price_precision": m.get("price_precision"),
+                          "features": {k: r.get(k) for k in ("r_6h", "r_24h") if r.get(k) is not None}})
+        picks = [p for p in picks if p["aim_score"] >= a.threshold]
+        for p in picks:
+            p["book"] = await self.weex.book(p["symbol"]) if p["on_weex"] else None
+            p["weex_qv24"] = (self.collector.weex_tickers.get(p["symbol"]) or {}).get("qv24")
+            if p["book"] and p["ref_price"]:
+                p["features"]["weex_dev_bps"] = (p["book"]["mid"] / p["ref_price"] - 1) * 1e4 * p["side"]
+        if picks:
+            await self.engine.decide(picks, None, int(time.time() * 1000))
+            log.info("daily trade: %d candidates cleared the threshold, decisions %s", len(picks),
+                     [p.get("decision") for p in picks])
 
     async def grind_nightly(self) -> None:
         from . import grindlab

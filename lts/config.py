@@ -97,6 +97,21 @@ class GrindLab:
 
 
 @dataclass
+class Aim:
+    """The project's aim: ONE trade a day worth ~10% on margin (a +1% move at 10x, +2% at 5x).
+    Each hour, the first early grind of the UTC day whose score clears `threshold` becomes the day's trade.
+    Settings come from the one-year 5-minute test (docs/DESIGN.md section 15)."""
+    enabled: bool = True
+    ranker: str = "checklist"            # checklist / smooth / first
+    threshold: float = 8.0
+    target: float = 0.01                 # +1% in the coin
+    stop: float = 0.01
+    hours: int = 24                      # time limit
+    max_leverage: int = 10
+    live: bool = False                   # paper until the forward record proves it
+
+
+@dataclass
 class Micro:
     """Live collection of liquidations and order-book depth (for studying sweeps / stop hunts)."""
     enabled: bool = True
@@ -185,6 +200,7 @@ class Config:
     grind: Grind = field(default_factory=Grind)
     grindlab: GrindLab = field(default_factory=GrindLab)
     micro: Micro = field(default_factory=Micro)
+    aim: Aim = field(default_factory=Aim)
     risk: Risk = field(default_factory=Risk)
     signal: Signal = field(default_factory=Signal)
     learn: Learn = field(default_factory=Learn)
