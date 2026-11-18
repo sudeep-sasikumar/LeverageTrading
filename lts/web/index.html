@@ -213,7 +213,7 @@ function render(d) {
     tile("Signals today", d.sent_today ?? 0, `${(d.open || []).length} open now`),
     statTile("Today", st.today), statTile("Last 7 days", st.d7), statTile("Last 30 days", st.d30),
     statTile("Paper signals (all)", st.paper), statTile("Real signals (all)", st.real),
-    statTile("Grind signals (tracked plan: 2x +5% / −0.75%)", st.grindsig),
+    statTile("Grind signals (tracked plan: 5x +2% / −1%)", st.grindsig),
     statTile("Momentum setup (all)", st.momentum), statTile("Grind setup (all, paper)", st.grind),
     tile("Candidates scanned 24h", d.data ? d.data.candidates_24h : "–", d.data ? `${d.data.labelled.toLocaleString()} labelled in total` : ""),
   ].join("");
