@@ -29,6 +29,13 @@ class Notifier:
         return True
 
 
+
+def momentum_cfg():
+    """These tests exercise the momentum track's sending path, which is switched off by default."""
+    cfg = Config()
+    cfg.signal.momentum_send = True
+    return cfg
+
 def bundle(status):
     return {"version": "mtest", "status": status, "model": StubModel(), "calibrator": StubCalibrator(),
             "features": ["er_1h"], "threshold": 0.2, "threshold_safe": 0.3, "floor": 0.1,
@@ -48,7 +55,7 @@ def run(coro):
 
 
 def test_unvalidated_model_sends_a_clearly_marked_paper_signal_and_tracks_it(tmp_path):
-    cfg, db, tg = Config(), DB(tmp_path / "s.sqlite"), Notifier()
+    cfg, db, tg = momentum_cfg(), DB(tmp_path / "s.sqlite"), Notifier()
     engine = SignalEngine(cfg, db, weex=None, notifier=tg)
     c = candidate()
     sent = run(engine.decide([c], bundle("shadow"), NOW))
@@ -74,7 +81,7 @@ def test_unvalidated_model_sends_a_clearly_marked_paper_signal_and_tracks_it(tmp
 
 
 def test_validated_model_sends_grade_a_without_the_paper_warning(tmp_path):
-    cfg, db, tg = Config(), DB(tmp_path / "s.sqlite"), Notifier()
+    cfg, db, tg = momentum_cfg(), DB(tmp_path / "s.sqlite"), Notifier()
     c = candidate(side=-1)
     c["features"]["r_1h"] = 0.03
     run(SignalEngine(cfg, db, None, tg).decide([c], bundle("champion"), NOW))
@@ -84,7 +91,7 @@ def test_validated_model_sends_grade_a_without_the_paper_warning(tmp_path):
 
 
 def test_risk_gates_block_signals(tmp_path):
-    cfg, db, tg = Config(), DB(tmp_path / "s.sqlite"), Notifier()
+    cfg, db, tg = momentum_cfg(), DB(tmp_path / "s.sqlite"), Notifier()
     engine = SignalEngine(cfg, db, None, tg)
     b = bundle("champion")
 
@@ -115,3 +122,10 @@ def test_risk_gates_block_signals(tmp_path):
     assert decision(symbol="CCCUSDT") == "skipped:max_open"
     db.set("paused", True)
     assert decision(symbol="DDDUSDT") == "skipped:paused"
+
+
+def test_momentum_setups_are_logged_not_sent_by_default(tmp_path):
+    cfg, db, tg = Config(), DB(tmp_path / "s.sqlite"), Notifier()
+    c = candidate()
+    sent = run(SignalEngine(cfg, db, weex=None, notifier=tg).decide([c], bundle("shadow"), NOW))
+    assert not sent and c["decision"] == "skipped:logged_only" and not tg.sent

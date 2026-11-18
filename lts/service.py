@@ -259,27 +259,35 @@ class Service:
                 log.exception("order-book snapshot failed")
 
     async def grind_loop(self) -> None:
-        """Hourly (3 minutes after the hour): latest 1h bars -> early-grind detection -> paper trades."""
+        """Every 5 minutes (about a minute after each 5-minute candle closes): early-grind detection -> signals."""
         if not self.cfg.grindlab.enabled:
             return
+        from .grindlab import FiveMinuteScanner
+        self.grind_scanner = FiveMinuteScanner(self.cfg)
         while True:
             now = time.time()
-            await asyncio.sleep(max(1.0, (math.floor(now / 3600) + 1) * 3600 + 180 - now))
+            await asyncio.sleep(max(1.0, (math.floor(now / 300) + 1) * 300 + self.cfg.grindsignal.scan_delay_s - now))
             try:
                 await self.grind_hour()
             except Exception:
-                log.exception("grind lab hourly failed")
+                log.exception("grind scan failed")
 
-    async def grind_hour(self) -> list[dict]:
+    async def grind_hour(self, end: int | None = None) -> list[dict]:
+        """One grind scan as of the latest 5-minute boundary (name kept from the hourly version)."""
         from . import grindlab
+        end = end or int(time.time() // 300 * 300 * 1000)
 
         def work():
             own = DB(self.cfg.path(self.cfg.storage.db_path))
             try:
-                return grindlab.hourly(self.cfg, own)
+                return self.grind_scanner.scan(own, end)
             finally:
                 own.close()
+        if not getattr(self, "grind_scanner", None):
+            from .grindlab import FiveMinuteScanner
+            self.grind_scanner = FiveMinuteScanner(self.cfg)
         rows = await asyncio.to_thread(work)
+        rows = self.grinds_to_record(rows, end)
         meta = {r["symbol"]: dict(r) for r in self.db.query("SELECT symbol, on_weex, price_precision FROM symbols")}
         cands = []
         for r in rows:
@@ -310,23 +318,56 @@ class Service:
                 self.db.execute("UPDATE grind_live SET decision=? WHERE symbol=? AND ts=? AND side=?",
                                 (c.get("decision") or "skipped:below_score", c["symbol"], c["ts"], c["side"]))
         await self.grind_signals(rows, meta)
-        log.info("grind lab hour: %d early grinds, %d with enough traits, %d sent", len(cands), len(worth),
+
+        def progress():
+            from .grindsignal import progress_grinds
+            own = DB(self.cfg.path(self.cfg.storage.db_path))
+            try:
+                return progress_grinds(self.cfg, own)
+            finally:
+                own.close()
+        try:
+            await asyncio.to_thread(progress)
+        except Exception:
+            log.exception("grind progress update failed")
+        log.info("grind scan: %d new early grinds, %d with enough traits, %d sent", len(cands), len(worth),
                  sum(1 for c in worth if c.get("decision") == "sent"))
         return cands
 
-    async def grind_signals(self, rows: list[dict], meta: dict) -> None:
-        """Score every early grind with the pattern-recognition model; send ALL above min_p."""
+    def grinds_to_record(self, rows: list[dict], end: int) -> list[dict]:
+        """Score every detected grind, then keep (record, and consider for sending) only:
+        - a grind with no record for that coin and side in the last 55 minutes (about one record an hour), or
+        - a grind whose score has just crossed the sending threshold (it was below at its last record)."""
         from . import grindsignal as GS
+        from .grindlab import _insert_live
         g = self.cfg.grindsignal
-        if not g.enabled or not rows:
-            return
+        if not rows:
+            return rows
         if not getattr(self, "gs_bundle", None) or time.time() - getattr(self, "gs_loaded", 0) > 6 * 3600:
             self.gs_bundle, self.gs_loaded = GS.load_bundle(self.cfg), time.time()
-        if not self.gs_bundle:
+        if g.enabled and self.gs_bundle:
+            pres = [GS.pre_from_db(self.db, r["symbol"], r["ts"]) for r in rows]
+            GS.score_rows(rows, pres, self.gs_bundle)
+            self.gs_pmin = GS.threshold(self.gs_bundle, g.top_share)
+        keep = []
+        for r in rows:
+            last = self.db.query("SELECT model_p, threshold FROM grind_live WHERE symbol=? AND side=? AND ts>? "
+                                 "ORDER BY ts DESC LIMIT 1", (r["symbol"], r["side"], end - 55 * 60_000))
+            p, p_min = r.get("p"), getattr(self, "gs_pmin", None)
+            crossed = (p is not None and p_min is not None and p >= p_min and last
+                       and (last[0]["model_p"] or 0) < (last[0]["threshold"] or 1))
+            if not last or crossed:
+                keep.append(r)
+        _insert_live(self.db, keep)
+        return keep
+
+    async def grind_signals(self, rows: list[dict], meta: dict) -> None:
+        """Send ALL recorded grinds whose model score is at or above the top-share threshold."""
+        from . import grindsignal as GS
+        g = self.cfg.grindsignal
+        if not g.enabled or not rows or not getattr(self, "gs_bundle", None) or "p" not in rows[0]:
             return
-        pres = [GS.pre_from_db(self.db, r["symbol"], r["ts"]) for r in rows]
-        GS.score_rows(rows, pres, self.gs_bundle)
-        p_min = GS.threshold(self.gs_bundle, g.top_share)
+        p_min = self.gs_pmin
         GS.record_grinds(self.db, rows, p_min)
         picks = []
         for r in rows:

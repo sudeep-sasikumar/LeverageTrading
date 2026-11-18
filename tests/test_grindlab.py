@@ -160,3 +160,53 @@ def test_dashboard_snapshot_carries_the_grinders_tab(tmp_path):
     d = snapshot(tmp_path / "d.sqlite")
     assert d["grindlab"]["n_episodes"] == 10
     assert d["grind_live"] == [] or d["grind_live"][0]["checks"]        # (older than 48h in wall-clock terms is fine)
+
+
+def _five_minute_from_hourly(db, sym, since, extra_bars=0, extra_step=0.0):
+    """5-minute candles that trace the hourly path (12 per hour), plus a few more continuing the trend."""
+    k = db.frame("SELECT ts,o,c,v FROM klines_1h WHERE symbol=? AND ts>=? ORDER BY ts", [sym, since])
+    rows = []
+    for t, o, c, v in k.itertuples(index=False):
+        steps = o * (c / o) ** (np.arange(13) / 12)
+        for j in range(12):
+            a, b = steps[j], steps[j + 1]
+            rows.append((int(t + j * 300_000), a, max(a, b) * 1.0005, min(a, b) * 0.9995, b, v / 12, v / 12 * b, 40, v / 24, v / 24 * b))
+    last_t, last_c = rows[-1][0], rows[-1][4]
+    for j in range(extra_bars):
+        a, b = last_c, last_c * (1 + extra_step)
+        rows.append((last_t + (j + 1) * 300_000, a, max(a, b) * 1.0005, min(a, b) * 0.9995, b, 1e4, 1e4 * b, 40, 5e3, 5e3 * b))
+        last_c = b
+    db.insert_klines(sym, rows)
+
+
+def test_five_minute_scan_detects_a_grind_between_hours(tmp_path, monkeypatch):
+    db = make_lab_db(tmp_path)
+    monkeypatch.setattr(G, "MIN_QV24", 0)
+    for s in ("BTCUSDT", "AAAUSDT", "BBBUSDT", "CCCUSDT", "DDDUSDT"):
+        _five_minute_from_hourly(db, s, NOW - 32 * HOUR, extra_bars=7 if s == "AAAUSDT" else 0, extra_step=0.0008)
+    end = NOW + 35 * 60_000                                   # 35 minutes into the next hour
+    ctx = G.load_context(db, end - 40 * DAY)
+    rows = G.scan_now(db, ctx, end)
+    hit = [r for r in rows if r["symbol"] == "AAAUSDT" and r["side"] == 1]
+    assert hit and hit[0]["ts"] == end and hit[0]["r_6h"] > 0.04 and hit[0]["r2_6h"] > 0.8
+    assert np.isfinite(hit[0]["mkt_r24"])                     # market context from the latest whole hour
+    assert not [r for r in rows if r["symbol"] == "BBBUSDT"]  # coins without a fresh 5-minute trail are skipped
+
+
+def test_progress_shows_each_plan_once_decided(tmp_path, monkeypatch):
+    from lts import grindsignal as GS
+    cfg, db = Config(), DB(tmp_path / "p.sqlite")
+    G.ensure_live_schema(db)
+    ts = NOW
+    db.execute("INSERT INTO grind_live(symbol, ts, side, price, score) VALUES ('AUSDT', ?, 1, 10.0, 5)", (ts,))
+    # +1.2% after 30 minutes, then flat: 10x (+1%) won, 5x (+2%) still open
+    bars = [(ts + i * 300_000, 10.0, 10.0 * (1.012 if i == 6 else 1.001), 9.998, 10.0, 1, 10, 1, 0.5, 5) for i in range(24)]
+    db.insert_klines("AUSDT", bars)
+    assert GS.progress_grinds(cfg, db, now=ts + 2 * HOUR) == 1
+    pr = json.loads(db.query("SELECT progress FROM grind_live")[0]["progress"])
+    assert pr["plans"]["10x +1.00% / -0.50%"] > 0.008 and pr["plans"]["5x +2.00% / -1.00%"] is None
+    assert pr["best"] > 0.0119 and pr["as_of"] == ts + 2 * HOUR
+    import lts.dashboard as D
+    monkeypatch.setattr(D.time, "time", lambda: (ts + 2 * HOUR) / 1000)
+    row = next(r for r in snapshot(tmp_path / "p.sqlite")["grind_all"] if r["symbol"] == "AUSDT")
+    assert row["plans"] is None and row["progress"]["plans"]["5x +2.00% / -1.00%"] is None

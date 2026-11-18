@@ -60,9 +60,11 @@ class RiskState:
 
     def block_reason(self, cfg: Config, symbol: str) -> str | None:
         r = cfg.risk
-        if self.kind == "grindsig":
-            pass                                          # no daily cap: every qualifying signal is sent
-        elif self.kind == "daily":
+        if self.kind == "grindsig":                       # every qualifying grind is sent; the trader picks.
+            if any(s["symbol"] == symbol for s in self.all_open):    # no daily cap, daily stop or streak stop
+                return "already_open"
+            return "symbol_cooldown" if symbol in self.cooling else None
+        if self.kind == "daily":
             if self.open:
                 return "daily_trade_open"
             if self.sent_today >= 1:
@@ -204,7 +206,9 @@ class SignalEngine:
             elif c["plan"] is None:
                 reason = "too_volatile"
             elif c.get("kind") == "grind" and not cfg.grind.signals_from_5m:
-                reason = "logged_only"                    # grind paper trades come from the hourly grind lab
+                reason = "logged_only"                    # grind signals come from the grind scanner
+            elif c.get("kind", "momentum") == "momentum" and not cfg.signal.momentum_send:
+                reason = "logged_only"                    # momentum setups: recorded for learning, not sent
             else:
                 grade = self._grade(c, bundle, state, now_ms)
                 if grade is None:

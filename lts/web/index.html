@@ -249,19 +249,27 @@ function render(d) {
       signed((r.factors.r_6h || 0) * 100, 1, "%"), signed((r.factors.r_24h || 0) * 100, 1, "%"),
       `<b>${r.score}</b>/${Object.keys(r.checks || {}).length}`, r.model_p == null ? "–" : pct(r.model_p, 0),
       r.decision === "sent" ? '<span class="chip accent">paper trade</span>' : (r.decision ? esc(r.decision.replace("skipped:", "").replaceAll("_", " ")) : "–"),
-      `<div style="white-space:normal;min-width:360px;max-width:560px;font-size:12px">${traitList(r.checks)}</div>`]), "No early grinds detected in the last 48 hours yet (checked every hour).");
+      `<div style="white-space:normal;min-width:360px;max-width:560px;font-size:12px">${traitList(r.checks)}</div>`]), "No early grinds detected in the last 48 hours yet (checked every 5 minutes).");
   const gsig = (d.signals || []).filter(s => s.kind === "grind" || s.kind === "grindsig");
   const ga = d.grind_all || [];
-  const planNames = ga.find(r => r.plans) ? Object.keys(ga.find(r => r.plans).plans) : ["10x", "5x", "3x", "2x"];
-  const planCell = (r, name) => !r.plans ? '<span class="muted">pending</span>' :
-    (r.plans[name] > 0 ? `<span class="pos">✓ ${signed(r.plans[name] * 100, 2, "%")}</span>` : `<span class="neg">✗ ${signed(r.plans[name] * 100, 2, "%")}</span>`);
+  const withPlans = ga.find(r => r.plans) || ga.find(r => r.progress && r.progress.plans);
+  const planNames = withPlans ? Object.keys(withPlans.plans || withPlans.progress.plans) : ["10x", "5x", "3x", "2x"];
+  const won = v => v > 0 ? `<span class="pos">✓ ${signed(v * 100, 2, "%")}</span>` : `<span class="neg">✗ ${signed(v * 100, 2, "%")}</span>`;
+  const planCell = (r, name) => {
+    if (r.plans) return won(r.plans[name]);                        // final, after 24h
+    const v = r.progress && r.progress.plans ? r.progress.plans[name] : undefined;
+    if (v === undefined) return '<span class="muted">waiting for data</span>';
+    return v === null ? '<span class="muted">open</span>' : won(v); // target or stop already hit
+  };
+  const moveCell = (fin, r, key, sign) => fin != null ? signed(sign * fin * 100, 1, "%") :
+    (r.progress && r.progress[key] != null ? `<span class="muted">${signed(sign * r.progress[key] * 100, 1, "%")} so far</span>` : "–");
   const gr = d.grinds_recorded || {};
   $("allTitle").textContent = `Every grind detected (last 3 days) — ${ga.length} shown; ${(gr.n || 0).toLocaleString()} recorded in total, ${(gr.labelled || 0).toLocaleString()} with 24h outcomes`;
   table($("grindAll"), [["Time"],["Coin"],["Side"],["Model score","num"],["Needed","num"],["Sent?"]].concat(planNames.map(n => [esc(n), "num"])).concat([["Best 24h","num"],["Worst 24h","num"]]),
     ga.map(r => [dt(r.ts), coin(r.symbol), side(r.side), r.model_p == null ? "–" : num(r.model_p, 3), r.threshold == null ? "–" : num(r.threshold, 3),
       r.decision === "sent" ? '<span class="chip accent">sent</span>' : '<span class="muted">' + esc((r.decision || "–").replace("skipped:", "").split(" (")[0]) + "</span>"]
-      .concat(planNames.map(n => planCell(r, n))).concat([r.best24 == null ? "–" : signed(r.best24 * 100, 1, "%"), r.worst24 == null ? "–" : signed(-r.worst24 * 100, 1, "%")])),
-    "No grinds recorded yet (the scan runs 3 minutes past every hour).");
+      .concat(planNames.map(n => planCell(r, n))).concat([moveCell(r.best24, r, "best", 1), moveCell(r.worst24, r, "worst", -1)])),
+    "No grinds recorded yet (the scan runs every 5 minutes).");
   table($("planStats"), [["Plan"],["Signals scored","num"],["Won","num"],["Avg per trade","num"],["Avg on margin","num"],["Total on margin","num"]],
     (d.plan_stats || []).map(r => [esc(r.plan), r.n, pct(r.win, 0), signed(r.net * 100, 2, "%"), signed(r.margin * 100, 1, "%"),
       signed(r.total_margin * 100, 0, "%")]), "No grind signal has completed its 24 hours yet.");

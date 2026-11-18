@@ -138,3 +138,39 @@ def test_every_grind_is_recorded_and_labelled_after_24h(tmp_path):
 
 def test_weex_link():
     assert GS.weex_url("HUMAUSDT") == "https://www.weex.com/futures/HUMA-USDT"
+
+
+def test_five_minute_scans_record_about_once_an_hour_and_when_the_score_crosses(tmp_path, monkeypatch):
+    import time as _t
+    from types import SimpleNamespace
+    from lts.grindlab import ensure_live_schema
+    from lts.service import Service
+    cfg, db = Config(), DB(tmp_path / "f.sqlite")
+    ensure_live_schema(db)
+    me = SimpleNamespace(cfg=cfg, db=db, gs_bundle={"bands": [{"top": 0.2, "p_min": 0.15}]}, gs_loaded=_t.time())
+    scores = iter([0.10, 0.11, 0.16, 0.17])
+    monkeypatch.setattr(GS, "pre_from_db", lambda *a: None)
+    monkeypatch.setattr(GS, "score_rows", lambda rows, pres, b: [r.update(p=next(scores), band=None) for r in rows])
+    monkeypatch.setattr(GS, "threshold", lambda b, share: 0.15)
+
+    def scan(end):
+        rows = [{"symbol": "AUSDT", "ts": end, "side": 1, "price": 1.0, "score": 3, "model_p": None, "checks": {}}]
+        kept = Service.grinds_to_record(me, rows, end)
+        GS.record_grinds(db, kept, 0.15)
+        return kept
+    assert len(scan(NOW)) == 1                          # first detection: recorded (below threshold)
+    assert scan(NOW + 300_000) == []                     # 5 minutes later, still below: not recorded again
+    assert len(scan(NOW + 600_000)) == 1                 # score crossed the threshold: recorded (and sent)
+    assert scan(NOW + 900_000) == []                     # already above at its last record
+    assert db.query("SELECT COUNT(*) n FROM grind_live")[0]["n"] == 2
+
+
+def test_grind_signals_are_not_stopped_by_earlier_losses(tmp_path):
+    cfg, db, tg = Config(), DB(tmp_path / "l.sqlite"), Notifier()
+    for i in range(3):                                   # three losing grind signals today: -3.9R
+        db.execute("""INSERT INTO signals(symbol, side, ts, grade, entry, sl, tp, sl_pct, tp_pct, leverage, status, kind,
+                      exit_ts, ret_r) VALUES (?, 1, ?, 'P', 10, 9.9, 10.2, 0.01, 0.02, 5, 'stopped', 'grindsig', ?, -1.3)""",
+                   (f"L{i}USDT", NOW - 3_600_000, NOW - 600_000))
+    cs = [cand(cfg, "NEWUSDT", 0.2), cand(cfg, "L0USDT", 0.2)]
+    asyncio.run(SignalEngine(cfg, db, None, tg).decide(cs, None, NOW))
+    assert cs[0]["decision"] == "sent" and cs[1]["decision"] == "skipped:symbol_cooldown"

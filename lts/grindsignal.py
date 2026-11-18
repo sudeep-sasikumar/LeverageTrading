@@ -328,6 +328,61 @@ def label_grinds(cfg, db: DB) -> int:
     return n
 
 
+def plan_progress(post: np.ndarray, side: int, plans: list[dict]) -> dict:
+    """Plans on the bars seen so far: {name: net % once the target or stop is hit, else None (still open)}."""
+    from .aim import ENTRY_COST, MAKER, SLIP, TAKER
+    ok = np.isfinite(post[:, 1])
+    post = post[ok]
+    if not len(post):
+        return {plan_name(pl): None for pl in plans}
+    e = float(post[0, 0])
+    hi, lo = post[:, 1].astype(float), post[:, 2].astype(float)
+    fav = hi / e - 1 if side > 0 else 1 - lo / e
+    adv = 1 - lo / e if side > 0 else hi / e - 1
+    out = {}
+    for pl in plans:
+        hs, ht = np.flatnonzero(adv >= pl["stop"]), np.flatnonzero(fav >= pl["target"])
+        i_s, i_t = (hs[0] if len(hs) else 10 ** 9), (ht[0] if len(ht) else 10 ** 9)
+        if i_s <= i_t and i_s < 10 ** 9:
+            out[plan_name(pl)] = -pl["stop"] - ENTRY_COST - TAKER - SLIP
+        elif i_t < 10 ** 9:
+            out[plan_name(pl)] = pl["target"] - ENTRY_COST - MAKER
+        else:
+            out[plan_name(pl)] = None
+    return out
+
+
+def progress_grinds(cfg, db: DB, now: int | None = None) -> int:
+    """For grinds under 24h old: each plan's result as soon as its target or stop is hit, plus the best and
+    worst move so far (shown on the dashboard instead of 'pending'). The full 24h record comes later."""
+    import json
+    from .grindlab import ensure_live_schema
+    ensure_live_schema(db)
+    gs = cfg.grindsignal
+    now = now or int(time.time() * 1000)
+    rows = db.query("SELECT symbol, ts, side FROM grind_live WHERE outcomes IS NULL AND ts > ?", (now - gs.hours * HOUR,))
+    n = 0
+    for r in rows:
+        bars = int(min(gs.hours * 12, (now - r["ts"]) // BAR))
+        if bars < 1:
+            continue
+        k = db.frame("SELECT ts,o,h,l,c FROM klines WHERE symbol=? AND ts>=? AND ts<? ORDER BY ts",
+                     [r["symbol"], r["ts"], r["ts"] + bars * BAR])
+        if not len(k):
+            continue
+        post = k[["o", "h", "l", "c"]].to_numpy(np.float64)
+        e = post[0, 0]
+        fav = (post[:, 1] / e - 1) if r["side"] > 0 else (1 - post[:, 2] / e)
+        adv = (1 - post[:, 2] / e) if r["side"] > 0 else (post[:, 1] / e - 1)
+        prog = {"as_of": int(k["ts"].iloc[-1] + BAR), "entry": float(e), "plans": plan_progress(post, r["side"], gs.plans),
+                "best": float(fav.max()), "worst": float(adv.max()),
+                "now": float(r["side"] * (post[-1, 3] / e - 1))}
+        db.execute("UPDATE grind_live SET progress=? WHERE symbol=? AND ts=? AND side=?",
+                   (json.dumps(_clean(prog)), r["symbol"], r["ts"], r["side"]))
+        n += 1
+    return n
+
+
 def weex_url(symbol: str) -> str:
     base = symbol[:-4] if symbol.endswith("USDT") else symbol
     return f"https://www.weex.com/futures/{base}-USDT"

@@ -290,7 +290,8 @@ ANN_KINDS = ("list", "futures_launch", "delist", "monitoring", "alpha", "airdrop
              "upbit_delist")
 
 
-def decision_row(sym: str, side: int, i: int, k: pd.DataFrame, f: pd.DataFrame, d: pd.DataFrame, ctx: dict) -> dict:
+def decision_row(sym: str, side: int, i: int, k: pd.DataFrame, f: pd.DataFrame, d: pd.DataFrame, ctx: dict,
+                 ctx_ts: int | None = None) -> dict:
     """All factors for an early-grind decision at hourly bar i (values known at that bar's close).
     The nightly study and the live detector both use this function."""
     idx = k.index.to_numpy()
@@ -318,7 +319,7 @@ def decision_row(sym: str, side: int, i: int, k: pd.DataFrame, f: pd.DataFrame, 
     atr_abs = fr["atr_1h"] * price
     if np.isfinite(atr_abs) and atr_abs > 0:
         row.update(daily_levels(d, t_close, price, side, atr_abs))
-    ts_i = idx[i]
+    ts_i = idx[i] if ctx_ts is None else ctx_ts      # market context: the latest whole hour on a 5-minute scan
     row["mkt_r24"] = side * ctx["mkt24"].get(ts_i, np.nan)
     row["mkt_r6"] = side * ctx["mkt6"].get(ts_i, np.nan)
     b = ctx["breadth"].get(ts_i, np.nan)
@@ -680,6 +681,44 @@ def live_scan(db: DB, ctx: dict | None = None, now_ms: int | None = None) -> lis
     return out
 
 
+RECENT_H = 30                                   # hours rebuilt from 5-minute candles on each 5-minute scan
+
+
+def _rolling_hours(db: DB, sym: str, end: int, n: int = RECENT_H) -> pd.DataFrame | None:
+    """n one-hour bars ending exactly at `end` (a 5-minute boundary), built from the 5-minute candles."""
+    k = db.frame("SELECT ts,o,h,l,c,v,qv,trades,tbqv FROM klines WHERE symbol=? AND ts>=? AND ts<? ORDER BY ts",
+                 [sym, end - n * HOUR, end])
+    if len(k) < n * 12 * 0.9:
+        return None
+    k["hb"] = end - n * HOUR + ((k["ts"] - (end - n * HOUR)) // HOUR) * HOUR
+    g = k.groupby("hb")
+    out = pd.DataFrame({"o": g["o"].first(), "h": g["h"].max(), "l": g["l"].min(), "c": g["c"].last(),
+                        "v": g["v"].sum(), "qv": g["qv"].sum(), "trades": g["trades"].sum(), "tbqv": g["tbqv"].sum()})
+    out.index.name = "ts"
+    return out.astype("float64") if len(out) == n else None
+
+
+def scan_now(db: DB, ctx: dict, end: int) -> list[dict]:
+    """Early-grind detections as of `end` (any 5-minute boundary): older history from the hourly table,
+    the last RECENT_H hours rebuilt from 5-minute candles so a grind is caught within 5 minutes."""
+    since = end - 40 * DAY
+    ctx_ts = (end // HOUR) * HOUR - HOUR            # latest whole hourly bar for market/sector context
+    out = []
+    for sym in ctx["syms"]:
+        old = _hourly(db, sym, since)
+        recent = _rolling_hours(db, sym, end)
+        if old is None or recent is None:
+            continue
+        old = old[old.index + HOUR <= recent.index[0]]
+        k = pd.concat([old, recent])
+        f = hourly_shape(k)
+        i = len(k) - 1
+        for side in (1, -1):
+            if early_grind_mask(f.iloc[[i]], side)[0]:
+                out.append(decision_row(sym, side, i, k, f, _daily(db, sym), ctx, ctx_ts=ctx_ts))
+    return out
+
+
 def score_live(rows: list[dict], bundle: dict | None) -> list[dict]:
     if not rows:
         return rows
@@ -708,6 +747,7 @@ CREATE TABLE IF NOT EXISTS grind_live (
     threshold REAL,                    -- the model score needed to be sent at the time
     outcomes TEXT,                     -- after 24h: every plan + a target/stop grid + best/worst moves (JSON)
     outcome_ts INTEGER,
+    progress TEXT,                     -- under 24h: each plan once decided, best/worst so far (JSON)
     PRIMARY KEY (symbol, ts, side)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS grind_episodes (
@@ -724,7 +764,7 @@ def ensure_live_schema(db: DB) -> None:
     db.conn.executescript(LIVE_SCHEMA)
     have = {r[1] for r in db.conn.execute("PRAGMA table_info(grind_live)")}
     for col, typ in (("all_factors", "TEXT"), ("micro", "TEXT"), ("threshold", "REAL"), ("outcomes", "TEXT"),
-                     ("outcome_ts", "INTEGER")):
+                     ("outcome_ts", "INTEGER"), ("progress", "TEXT")):
         if col not in have:
             db.conn.execute(f"ALTER TABLE grind_live ADD COLUMN {col} {typ}")
     db.conn.commit()
@@ -812,10 +852,35 @@ def hourly(cfg, db: DB) -> list[dict]:
     syms = [r["symbol"] for r in db.query("SELECT symbol FROM symbols WHERE active=1 AND src='binance'")]
     asyncio.run(refresh_recent(db, syms + ["BTCUSDT"]))
     rows = score_live(live_scan(db), load_bundle(cfg))
+    _insert_live(db, rows)
+    return rows
+
+
+def _insert_live(db: DB, rows: list[dict]) -> None:
     for r in rows:
         r["catalyst"] = int(r.get("catalyst_short") or 0)
         db.execute("INSERT OR REPLACE INTO grind_live(symbol, ts, side, price, score, model_p, catalyst, checks, factors, decision) "
                    "VALUES(?,?,?,?,?,?,?,?,?,?)",
                    (r["symbol"], r["ts"], r["side"], r["price"], r["score"], r["model_p"], r["catalyst"],
                     json.dumps(r["checks"]), json.dumps(_clean({k: r.get(k) for k in SHOW_FACTORS})), None))
-    return rows
+
+
+class FiveMinuteScanner:
+    """Every 5 minutes: detect early grinds from the latest 5-minute candles. The hourly table is topped up
+    once an hour, and the market context (slow, all coins) is rebuilt once an hour."""
+
+    def __init__(self, cfg):
+        self.cfg, self.ctx, self.ctx_hour, self.refreshed_hour = cfg, None, None, None
+
+    def scan(self, db: DB, end: int) -> list[dict]:
+        import asyncio
+        from .grindlab_data import refresh_recent
+        ensure_live_schema(db)
+        hour = end // HOUR
+        if self.refreshed_hour != hour and end % HOUR >= 5 * 60_000:      # hourly bars are published by then
+            syms = [r["symbol"] for r in db.query("SELECT symbol FROM symbols WHERE active=1 AND src='binance'")]
+            asyncio.run(refresh_recent(db, syms + ["BTCUSDT"]))
+            self.refreshed_hour, self.ctx = hour, None
+        if self.ctx is None or self.ctx_hour != hour:
+            self.ctx, self.ctx_hour = load_context(db, end - 40 * DAY), hour
+        return score_live(scan_now(db, self.ctx, end), load_bundle(self.cfg))

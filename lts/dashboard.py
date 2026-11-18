@@ -169,13 +169,18 @@ def snapshot(db_path: Path) -> dict:
         if q("SELECT 1 FROM sqlite_master WHERE type='table' AND name='grind_live'"):
             cols_gl = {r["name"] for r in q("PRAGMA table_info(grind_live)")}
             if "outcomes" in cols_gl:
-                allg = q("SELECT symbol, ts, side, model_p, threshold, decision, outcomes FROM grind_live "
+                prog = ", progress" if "progress" in cols_gl else ", NULL AS progress"
+                allg = q("SELECT symbol, ts, side, model_p, threshold, decision, outcomes" + prog + " FROM grind_live "
                          "WHERE ts>=? ORDER BY ts DESC LIMIT 2500", (now - 3 * DAY,))
                 for r in allg:
                     o = json.loads(r.pop("outcomes") or "null") or {}
+                    pr = json.loads(r.pop("progress") or "null") or {}
                     r["plans"] = o.get("plans")
                     r["best24"] = (o.get("best") or {}).get("24")
                     r["worst24"] = (o.get("worst") or {}).get("24")
+                    if not r["plans"] and pr:                 # under 24h: plans decided so far, moves so far
+                        r["progress"] = {"plans": pr.get("plans"), "best": pr.get("best"), "worst": pr.get("worst"),
+                                         "as_of": pr.get("as_of")}
                 out["grind_all"] = allg
                 out["grinds_recorded"] = q("SELECT COUNT(*) n, SUM(outcomes IS NOT NULL) labelled FROM grind_live")[0]
         if q("SELECT 1 FROM sqlite_master WHERE type='table' AND name='grind_episodes'"):

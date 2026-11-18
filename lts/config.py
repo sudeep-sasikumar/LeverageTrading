@@ -109,7 +109,7 @@ class GrindSignal:
         {"leverage": 3, "target": 0.0333, "stop": 0.01},
         {"leverage": 2, "target": 0.05, "stop": 0.0075},
     ])
-    primary: int = 3                     # index of the tracked plan (2x +5% / -0.75% held up best on unseen months)
+    primary: int = 1                     # tracked plan and model label: 5x +2% / -1% (trader: 1-2% moves at 5-10x)
     top_share: float = 0.20              # send the best-scoring 20% of grinds (~30 a day) - trader's choice
     # every detected grind is labelled after 24h on this grid too (targets x stops), for later tuning
     record_targets: list = field(default_factory=lambda: [0.01, 0.015, 0.02, 0.0333, 0.05])
@@ -117,6 +117,7 @@ class GrindSignal:
     hours: int = 24
     min_days_for_own_model: float = 60.0 # retrain on this server's data once it holds this much 5m history
     live: bool = False                   # PAPER unless the primary plan's band qualifies AND this is switched on
+    scan_delay_s: int = 60               # grind scan runs this long after each 5-minute candle closes
 
 
 @dataclass
@@ -165,6 +166,8 @@ class Signal:
     fallback_after_utc_hour: int = 14    # grade-B "best of day" allowed after this hour
     min_ev_r: float = 0.10               # minimum expected value (in R) for any signal
     rules_min_score: float = 70.0        # used only when no model exists
+    momentum_send: bool = False          # momentum setups (stop sized by ATR, 3-5x) are logged only: every signal
+                                         # sent is a grind with the trader's 1-2% plans (DESIGN.md section 19)
 
 
 @dataclass

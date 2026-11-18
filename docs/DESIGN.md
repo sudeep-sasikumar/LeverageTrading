@@ -713,3 +713,27 @@ anything.
   it was sent, and each plan's outcome.
 - Every coin name in every table links to its Weex perpetual page.
 - Telegram signals carry the same link.
+
+## 19. Every 5 minutes, 5x +2% tracked, only grind signals sent (18 Nov 2026)
+
+Alignment review against the aim (one +10% trade a day = a 1–2% move at 5–10x):
+
+- **Scan every 5 minutes** (was hourly at hh:03). The last 30 hours are rebuilt as rolling
+  1-hour steps from 5-minute candles that end at the latest 5-minute close, so a grind is caught
+  within about 6 minutes instead of up to an hour (`grindlab.scan_now`, `FiveMinuteScanner`).
+  Older history still comes from the hourly table, which is topped up once an hour. 1–2 minute
+  scanning was not adopted: the collector, every study and the model are built on 5-minute candles,
+  and over the 5 minutes a typical grind moves about 0.05%.
+- **Recording:** a coin and side is recorded at first detection, then about once an hour while it
+  keeps grinding, plus whenever its score crosses the sending threshold (it is sent then).
+- **Tracked plan and model label: 5x +2% / −1%** (was 2x +5% / −0.75%). The seed model was
+  retrained to predict that plan. The threshold for the top 20% is now 0.367, about 31 a day.
+  On unseen months, the top 20% won 33.7% against about 40% needed to break even after fees,
+  −0.20% per trade.
+- **Only grind signals are sent.** The momentum track (stop sized by ATR, so leverage came out as
+  3–5x with 1–2.5% stops) is logged for learning only (`signal.momentum_send = False`).
+- **Grind signals are not blocked** by the daily −2R stop or the two-losses-in-a-row stop (the trader
+  picks manually). They still skip a coin that already has an open signal or lost in the last 4h.
+- **Early results on the dashboard:** grinds under 24h old show each plan as soon as its target or
+  stop is hit, and the best and worst move so far (`progress` column, `progress_grinds`), instead
+  of "pending".
