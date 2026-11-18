@@ -16,7 +16,7 @@ import math
 import numpy as np
 import pandas as pd
 
-TAKER, MAKER, SLIP = 0.0008, 0.0002, 0.0004
+TAKER, MAKER, SLIP = 0.0008, 0.0002, 0.0004   # Weex: TP/SL both fill as market orders (taker)
 ENTRY_COST = TAKER + SLIP
 TARGETS = (0.01, 0.015, 0.02)
 STOPS = (0.007, 0.01, 0.015, 0.02, 0.03)
@@ -48,7 +48,7 @@ def outcomes(paths: np.ndarray, side: np.ndarray) -> dict:
                 tgt = (i_t < i_s) & (i_t < 10 ** 6)
                 time_ret = close_ret[:, nb - 1]
                 net = np.where(stop_first, -S - ENTRY_COST - TAKER - SLIP,
-                               np.where(tgt, T - ENTRY_COST - MAKER, time_ret - ENTRY_COST - TAKER - SLIP))
+                               np.where(tgt, T - ENTRY_COST - TAKER, time_ret - ENTRY_COST - TAKER - SLIP))
                 exit_bar = np.where(stop_first, i_s, np.where(tgt, i_t, nb - 1))
                 bad = ~np.isfinite(paths[:, :nb, 1]).all(1)
                 net[bad] = np.nan

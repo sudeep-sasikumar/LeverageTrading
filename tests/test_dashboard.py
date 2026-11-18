@@ -94,3 +94,50 @@ def test_no_login_on_localhost(tmp_path):
             assert (await c.get("/api/data")).status == 200
 
     asyncio.run(go())
+
+
+def test_my_trades_log_edit_close_and_delete(tmp_path):
+    make_db(tmp_path)
+
+    async def go():
+        app = build_app(cfg_for(tmp_path), password="pw", need_login=True, cookie_secure=False)
+        async with TestClient(TestServer(app)) as c:
+            assert (await c.post("/api/my_trades", json={"symbol": "x", "side": "long", "entry_price": 1})).status == 401
+            await c.post("/login", json={"password": "pw"})
+            # a plain form post (cross-site style) is refused
+            assert (await c.post("/api/my_trades", data={"symbol": "AAAUSDT"})).status == 400
+            assert (await c.post("/api/my_trades", json={"symbol": "AAA", "side": "long"})).status == 400   # no entry
+            # the MEGA trade: 5x long, $100 margin, entry fee 0.3998, opened 10 minutes after the AAA signal
+            r = await c.post("/api/my_trades", json={"symbol": "aaa", "side": "long", "leverage": 5, "margin": 100.2104,
+                                                      "entry_price": 0.05457, "tp_price": 0.05566, "sl_price": 0.05402,
+                                                      "open_fee": 0.3998, "open_ts": NOW - 7_200_000 + 600_000})
+            tid = (await r.json())["id"]
+            d = await (await c.get("/api/data")).json()
+            t = d["my_trades"]["trades"][0]
+            assert t["symbol"] == "AAAUSDT" and t["status"] == "open" and t["net"] is None
+            assert t["signal"] and t["signal"]["ts"] == NOW - 7_200_000          # matched to the LTS signal
+            # closed at the target: Weex realized PnL 9.9844, close fee 0.4078
+            r = await c.post(f"/api/my_trades/{tid}", json={"exit_price": 0.05566, "close_fee": 0.4078, "realized_pnl": 9.9844,
+                                                             "status": "closed", "exit_reason": "tp"})
+            assert r.status == 200
+            d = await (await c.get("/api/data")).json()
+            t, tot = d["my_trades"]["trades"][0], d["my_trades"]["totals"]
+            assert abs(t["net"] - (9.9844 - 0.3998 - 0.4078)) < 1e-9 and abs(t["net_pct"] - t["net"] / 100.2104) < 1e-9
+            assert tot["closed"] == 1 and tot["wins"] == 1
+            assert (await c.delete(f"/api/my_trades/{tid}")).status == 200
+            d = await (await c.get("/api/data")).json()
+            assert d["my_trades"]["trades"] == []
+
+    asyncio.run(go())
+
+
+def test_trading_database_stays_read_only(tmp_path):
+    """Logging a trade writes only the separate journal file."""
+    from lts import journal
+    make_db(tmp_path)
+    jp = journal.path_for(tmp_path / "d.sqlite")
+    journal.add(jp, {"symbol": "BBBUSDT", "side": "short", "entry_price": 2.0, "exit_price": 1.96, "leverage": 5,
+                     "margin": 50, "open_fee": 0.04, "close_fee": 0.04})
+    t = journal.read(jp)["trades"][0]
+    assert jp.name == "my_trades.sqlite" and t["status"] == "closed"
+    assert abs(t["gross"] - 0.02 * 250) < 1e-9 and abs(t["net"] - (5.0 - 0.08)) < 1e-9     # worked out from prices

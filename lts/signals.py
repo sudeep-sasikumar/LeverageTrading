@@ -103,7 +103,7 @@ class SignalEngine:
         if cand.get("kind") == "grindsig":
             g = self.cfg.grindsignal
             tc = self.cfg.trade
-            cost_win = tc.taker_fee + tc.slippage + tc.maker_fee
+            cost_win = 2 * tc.taker_fee + tc.slippage             # Weex TP fills as a market order
             cost_loss = 2 * (tc.taker_fee + tc.slippage)
             cand["all_plans"] = [{**pl, "gain_margin": pl["leverage"] * (pl["target"] - cost_win),
                                   "loss_margin": pl["leverage"] * (pl["stop"] + cost_loss)} for pl in g.plans]
@@ -120,7 +120,7 @@ class SignalEngine:
         if cand.get("kind") == "daily":
             a = self.cfg.aim
             tc = self.cfg.trade
-            cost = tc.taker_fee + tc.slippage + tc.maker_fee
+            cost = 2 * tc.taker_fee + tc.slippage
             lev = int(min(a.max_leverage, max(1, math.ceil(0.10 / max(a.target - cost, 1e-6)))))
             cand["plan"] = plan_from_stop(tc, a.stop, a.target / a.stop, self.cfg.risk.risk_per_trade, a.hours * 12)
             cand["plan"]["leverage"] = lev

@@ -11,7 +11,7 @@ from .config import Trade
 def costs(tc: Trade) -> dict:
     """Round-trip cost as a fraction of notional, by exit type."""
     market = tc.taker_fee + tc.slippage
-    return {"tp": market + tc.maker_fee,      # market entry, limit take-profit
+    return {"tp": market + tc.taker_fee,      # market entry; Weex position TP fills as a market order (taker)
             "sl": 2 * market,                 # market entry, stop-market exit
             "time": 2 * market}
 

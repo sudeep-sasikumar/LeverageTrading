@@ -204,7 +204,7 @@ def test_progress_shows_each_plan_once_decided(tmp_path, monkeypatch):
     db.insert_klines("AUSDT", bars)
     assert GS.progress_grinds(cfg, db, now=ts + 2 * HOUR) == 1
     pr = json.loads(db.query("SELECT progress FROM grind_live")[0]["progress"])
-    assert pr["plans"]["10x +1.00% / -0.50%"] > 0.008 and pr["plans"]["5x +2.00% / -1.00%"] is None
+    assert pr["plans"]["10x +1.00% / -0.50%"] > 0.0079 and pr["plans"]["5x +2.00% / -1.00%"] is None
     assert pr["best"] > 0.0119 and pr["as_of"] == ts + 2 * HOUR
     import lts.dashboard as D
     monkeypatch.setattr(D.time, "time", lambda: (ts + 2 * HOUR) / 1000)

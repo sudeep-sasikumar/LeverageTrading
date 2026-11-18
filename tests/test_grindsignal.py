@@ -50,7 +50,7 @@ def test_every_top_signal_is_sent_with_all_three_plans(tmp_path):
     assert msg.count("history (top 5%") == len(cfg.grindsignal.plans) == 4 and "← tracked" in msg and "PAPER" in msg
     assert 'href="https://www.weex.com/futures/C0-USDT"' in msg                 # one-click chart
     # +2% at 5x after fees is close to +10% on margin
-    assert "+9.3% /" in msg
+    assert "+9.0% /" in msg                                  # 5x +2%: taker in and out, 0.04% slippage
 
 
 def test_plan_outcomes_tight_stop_and_target():
@@ -102,7 +102,7 @@ def test_every_plan_is_recorded_after_24h(tmp_path):
     res = {r["plan"]: dict(r) for r in db.query("SELECT * FROM signal_plans")}
     assert len(res) == 4
     ten = next(v for k, v in res.items() if k.startswith("10x"))
-    assert ten["outcome"] == "target" and ten["margin"] > 0.08          # +1% at 10x
+    assert ten["outcome"] == "target" and ten["margin"] > 0.079         # +1% at 10x, taker fee both ways
     five = next(v for k, v in res.items() if k.startswith("5x"))
     assert five["outcome"] == "target" and five["margin"] > 0.09        # +2% hit -> ~+9% on margin at 5x
 
@@ -131,7 +131,7 @@ def test_every_grind_is_recorded_and_labelled_after_24h(tmp_path):
         _t.time = orig
     o = json.loads(db.query("SELECT outcomes FROM grind_live")[0]["outcomes"])
     assert set(o["plans"]) == {GS.plan_name(p) for p in cfg.grindsignal.plans}
-    assert o["plans"]["10x +1.00% / -0.50%"] > 0.008                     # short: the -1.5% dip hits +1%
+    assert o["plans"]["10x +1.00% / -0.50%"] > 0.0079                    # short: the -1.5% dip hits +1%
     assert len(o["grid"]) == len(cfg.grindsignal.record_targets) * len(cfg.grindsignal.record_stops)
     assert o["best"]["24"] > 0.0149
 

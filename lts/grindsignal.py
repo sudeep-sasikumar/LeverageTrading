@@ -330,7 +330,7 @@ def label_grinds(cfg, db: DB) -> int:
 
 def plan_progress(post: np.ndarray, side: int, plans: list[dict]) -> dict:
     """Plans on the bars seen so far: {name: net % once the target or stop is hit, else None (still open)}."""
-    from .aim import ENTRY_COST, MAKER, SLIP, TAKER
+    from .aim import ENTRY_COST, SLIP, TAKER
     ok = np.isfinite(post[:, 1])
     post = post[ok]
     if not len(post):
@@ -346,7 +346,7 @@ def plan_progress(post: np.ndarray, side: int, plans: list[dict]) -> dict:
         if i_s <= i_t and i_s < 10 ** 9:
             out[plan_name(pl)] = -pl["stop"] - ENTRY_COST - TAKER - SLIP
         elif i_t < 10 ** 9:
-            out[plan_name(pl)] = pl["target"] - ENTRY_COST - MAKER
+            out[plan_name(pl)] = pl["target"] - ENTRY_COST - TAKER
         else:
             out[plan_name(pl)] = None
     return out

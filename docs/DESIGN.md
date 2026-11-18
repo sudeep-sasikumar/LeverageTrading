@@ -786,3 +786,20 @@ Test on 63,528 early grinds (Oct 2025 – Nov 2026). Unfiltered, the plan won 33
 No improvement found; the live minute-shape model stays (it is the least bad). What the past year
 cannot test is the new live data: liquidations, order books and the per-grind records. These get
 the same test once there are about 2 months of them.
+
+## 22. Fees on targets, and the trader's own trades (19 Nov 2026)
+
+**Target exits pay the taker fee.** The first real trade (MEGAUSDT 5x long, $100 margin) showed Weex
+charging 0.08% when the position TP filled (0.4078 USDT on 509.85), the same as on entry. Every
+outcome now charges taker on target exits (was maker 0.02%): `labels.costs`, `aim.outcomes`,
+`grindsignal.plan_progress`, the signal message. The 5x +2% plan now shows +9.0% on margin at target
+(the MEGA trade got +9.16% net because its fills had no slippage; 0.04% slippage is still assumed
+on entry). Seed model re-fitted: in the top 20% the 5x plan won 33.7%, −0.22% per trade.
+
+**My trades** (dashboard tab, `lts/journal.py`): the trader's own trades — coin, side, leverage,
+margin, entry, TP, SL, open/close time and fees, exit, realized PnL, funding, exit reason, notes.
+Net = realized PnL − fees + funding (worked out from prices when PnL is blank). Each trade is
+matched to the LTS signal for the same coin and side sent up to 6h before it was opened. Trades
+are logged from the form, or by Claude from exchange screenshots. They are stored in a separate
+file (`data/my_trades.sqlite`), so the trading database stays read-only to the dashboard. Writes
+need the login cookie and a JSON body.

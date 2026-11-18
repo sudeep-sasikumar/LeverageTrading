@@ -1,7 +1,8 @@
-"""Read-only web dashboard (aiohttp), served from a background thread.
+"""Web dashboard (aiohttp), served from a background thread.
 
-It opens the SQLite file read-only, so it works during the first-start bootstrap as well as
-while the service runs, and it can never change trading state.
+It opens the trading SQLite file read-only, so it works during the first-start bootstrap as well as
+while the service runs, and it can never change trading state. The one thing it writes is the
+trader's own trade journal, a separate file (lts/journal.py).
 
 Environment:
   DASHBOARD_PASSWORD       required whenever the dashboard is reachable beyond localhost
@@ -25,6 +26,7 @@ from pathlib import Path
 
 from aiohttp import web
 
+from . import journal
 from .config import Config
 
 log = logging.getLogger("lts.dashboard")
@@ -198,6 +200,12 @@ def snapshot(db_path: Path) -> dict:
                                    "median_left": lefts[len(lefts) // 2] if lefts else None,
                                    "signalled": sum(1 for h in recent if h["signal_id"])}
         out["sent_today"] = q("SELECT COUNT(*) c FROM signals WHERE ts>=?", (day0,))[0]["c"]
+        sigs = q("SELECT id, symbol, side, ts, kind, entry, status, leverage FROM signals WHERE ts>=?", (now - 60 * DAY,))
+        try:
+            out["my_trades"] = journal.read(journal.path_for(db_path), sigs)
+        except Exception as e:                                # never let the journal break the page
+            log.warning("my trades: %s", e)
+            out["my_trades"] = {"trades": [], "totals": {"n": 0}, "error": str(e)}
         out["candidates"] = q("SELECT id, symbol, side, ts, kind, atr_pct, rule_score, model_p, decision, outcome, "
                               "ret_r FROM candidates WHERE source='live' ORDER BY ts DESC, id DESC LIMIT 200")
         out["skips_24h"] = q("SELECT COALESCE(decision,'n/a') AS decision, COUNT(*) n FROM candidates "
@@ -255,9 +263,41 @@ def build_app(cfg: Config, password: str, need_login: bool, cookie_secure: bool)
     async def healthz(_request: web.Request):
         return web.json_response({"ok": True})
 
+    jpath = journal.path_for(db_path)
+
+    async def _body(request: web.Request) -> dict:
+        if request.content_type != "application/json":          # blocks plain cross-site form posts
+            raise ValueError("send JSON")
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError("send a JSON object")
+        return body
+
+    async def trade_add(request: web.Request):
+        try:
+            tid = await asyncio.to_thread(journal.add, jpath, await _body(request))
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        cache["data"] = None
+        return web.json_response({"ok": True, "id": tid})
+
+    async def trade_update(request: web.Request):
+        try:
+            ok = await asyncio.to_thread(journal.update, jpath, int(request.match_info["id"]), await _body(request))
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        cache["data"] = None
+        return web.json_response({"ok": ok}, status=200 if ok else 404)
+
+    async def trade_delete(request: web.Request):
+        ok = await asyncio.to_thread(journal.delete, jpath, int(request.match_info["id"]))
+        cache["data"] = None
+        return web.json_response({"ok": ok}, status=200 if ok else 404)
+
     app = web.Application(middlewares=[auth])
     app.add_routes([web.get("/", index), web.post("/login", login), web.get("/api/data", data),
-                    web.get("/healthz", healthz)])
+                    web.get("/healthz", healthz), web.post("/api/my_trades", trade_add),
+                    web.post(r"/api/my_trades/{id:\d+}", trade_update), web.delete(r"/api/my_trades/{id:\d+}", trade_delete)])
     return app
 
 

@@ -53,7 +53,7 @@ def test_outcomes_on_5m_paths_stop_first_and_fees():
     up[2, 7, 1], up[2, 7, 2] = 101.5, 98.5                         # both in one bar -> counted as stop
     out = A.outcomes(up, np.array([1, 1, 1]))
     net, xbar = out[(0.01, 0.01, 24)]
-    assert net[0] == pytest.approx(0.01 - A.ENTRY_COST - A.MAKER) and xbar[0] == 10
+    assert net[0] == pytest.approx(0.01 - A.ENTRY_COST - A.TAKER) and xbar[0] == 10
     assert net[1] == pytest.approx(-0.01 - A.ENTRY_COST - A.TAKER - A.SLIP)
     assert net[2] == pytest.approx(net[1])
 
