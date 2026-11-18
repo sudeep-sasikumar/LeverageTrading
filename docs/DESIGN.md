@@ -758,3 +758,31 @@ per trade is almost exactly the fee saved by entering with a limit order instead
 the win rate does not change. Deeper dips fill less often and do no better. Not adopted for
 signals. The useful by-product: entering grind signals with a limit order rather than at market
 saves about 0.1% per trade.
+
+## 21. Selecting 5x +2% / −1% winners (18 Nov 2026)
+
+Trader's decision: the main plan is 5x, +2% target, 1% stop, entered at once on detection (no
+pullback or limit entries); 10x, 3x and 2x and the target/stop grid keep being recorded.
+
+Test on 63,528 early grinds (Oct 2025 – Nov 2026). Unfiltered, the plan won 33.1% against about
+40% needed after fees (−0.22% per trade). That is what a random walk gives for +2 before −1 (1/3).
+
+- **Single factors:** each of 153 factors (multi-timeframe levels, momentum, volume and flow, funding,
+  market, sector, BTC, news, listing age, minute shape) split into fifths on the first 7 months. The
+  biggest gap was 5 points of win rate; 4 of the top 20 kept their direction on the last 7 months, by
+  2–3 points, and no fifth was profitable there (best −0.18% per trade).
+- **Models (monthly walk-forward, unseen months Jan–Nov 2026):**
+
+  | Features | AUC | Top 20% | Top 5% | Top 2% |
+  |---|---|---|---|---|
+  | Minute shape (live model) | 0.506 | won 34.0%, −0.19% | 35.4%, −0.14% | 35.3%, −0.14% |
+  | Hourly/daily factors | 0.497 | 32.8%, −0.23% | 32.7%, −0.23% | 33.2%, −0.22% |
+  | Both | 0.500 | 33.3%, −0.21% | 31.1%, −0.28% | 31.0%, −0.28% |
+
+- **One trade a day** (first grind above the threshold): no setting was positive in most months.
+  One line out of nine was positive (hourly factors top 1%, a trade on 24% of days, +0.56% margin,
+  positive in 5 of 11 months) — expected by chance among nine tries.
+
+No improvement found; the live minute-shape model stays (it is the least bad). What the past year
+cannot test is the new live data: liquidations, order books and the per-grind records. These get
+the same test once there are about 2 months of them.
