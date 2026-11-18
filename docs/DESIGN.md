@@ -737,3 +737,24 @@ Alignment review against the aim (one +10% trade a day = a 1–2% move at 5–10
 - **Early results on the dashboard:** grinds under 24h old show each plan as soon as its target or
   stop is hit, and the best and worst move so far (`progress` column, `progress_grinds`), instead
   of "pending".
+
+## 20. Pullback entry test (18 Nov 2026)
+
+Idea from the 18 Nov movers: most detected grinds that reach +2% first dip about 1%, so wait for a
+dip before entering. Test: at detection, rest a limit order 0.25–2% against the move for 1–8h; if
+filled, the trader's plan from the fill price until 24h after detection. Conservative fills (the
+fill bar can stop you out but cannot pay the target). Maker fee on the limit entry. 63,528 grinds,
+Oct 2025 – Nov 2026; variants picked on the first 7 months, judged on the last 7.
+
+| Plan | Enter at once (last 7 months) | Best dip (0.5%) (last 7 months) |
+|---|---|---|
+| 10x +1% / −0.5% | won 29.7%, −0.26% per trade | won 30.3%, −0.15% |
+| 5x +2% / −1% | won 31.9%, −0.25% | won 31.8%, −0.15% |
+| 3x +3.33% / −1% | won 22.5%, −0.25% | won 22.4%, −0.16% |
+| 2x +5% / −0.75% | won 13.2%, −0.26% | won 13.1%, −0.17% |
+
+Every variant failed: negative in every month of the second half. The improvement of about 0.1%
+per trade is almost exactly the fee saved by entering with a limit order instead of at market;
+the win rate does not change. Deeper dips fill less often and do no better. Not adopted for
+signals. The useful by-product: entering grind signals with a limit order rather than at market
+saves about 0.1% per trade.
