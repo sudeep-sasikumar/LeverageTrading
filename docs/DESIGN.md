@@ -840,3 +840,29 @@ the target (`grind_live.after_exit`, filled 48h after detection). Every sent sig
 (`skip_if_level_blocks = True`). On the year that rule removes about half the calls without
 changing the win rate. Skipped grinds are still recorded, with decision "level in way", so the
 rule can be judged on live results.
+
+## 24. Trade anatomy: why a trade that went our way reversed to the stop (19 Nov 2026)
+
+Every recorded grind (tracked 5x plan) and every sent signal is followed from entry to its best
+point before the exit (the peak) to the exit (`lts/reversal.py`; `grind_live.anatomy`,
+`signal_anatomy`). Winners are recorded the same way, as the comparison group. A **reversal** =
+at least +0.5% in profit first, then the −1% stop.
+
+Recorded, all in the trade's direction:
+- **Timing:** best move, minutes to the peak, peak to exit, hour of day.
+- **Phases** (entry→peak, 30 min either side of the peak, peak→exit): speed, volume vs the 6h before
+  entry, taker flow (+1 all takers with us, −1 all against), volume on candles against us, the
+  biggest candle against us, most candles against in a row.
+- **The peak candle:** the wick against us as a share of the candle.
+- **Outside the coin:** BTC and the median coin in each phase, the share of coins moving against us,
+  liquidations against/with us for the coin and the whole market.
+- **Positioning:** open interest change entry→peak and peak→exit; order book at entry, peak and exit
+  (depth imbalance within 0.5/1/2%, spread, wall ahead and wall behind); premium and funding.
+- **Levels:** the nearest daily/weekly/monthly level to the peak.
+- **News:** Binance/Upbit announcements for the coin during the trade.
+- **Exit clues:** when price first closed back at entry, through the 5m EMA20, and through the last
+  swing low (high for shorts) of the run — each in minutes, to see how long before the stop it came.
+
+Dashboard, Grinders tab: medians for reversals vs targets vs other stops, and every reversal of the
+last 7 days with its clues. Once enough trades are recorded, these are tested for an early-exit
+rule (exit at clue X instead of waiting for the stop), on unseen weeks.

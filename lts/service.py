@@ -216,11 +216,16 @@ class Service:
                     last_hour = now.hour
                     await self.collector.collect_slow()
                     label_matured(self.cfg, self.db)
-                    from .grindsignal import label_after_exit, label_grinds, label_signal_plans, record_signal_paths
+                    from .grindsignal import (label_after_exit, label_anatomy, label_grinds, label_signal_plans,
+                                              record_signal_paths)
                     label_signal_plans(self.cfg, self.db)
                     label_grinds(self.cfg, self.db)
                     label_after_exit(self.cfg, self.db)
                     record_signal_paths(self.cfg, self.db)
+                    try:
+                        label_anatomy(self.cfg, self.db)
+                    except Exception:
+                        log.exception("trade anatomy failed")
                     if now.hour % 6 == 0:
                         await refresh_universe(self.cfg, self.db, self.binance, self.weex)
                 day = now.strftime("%Y-%m-%d")

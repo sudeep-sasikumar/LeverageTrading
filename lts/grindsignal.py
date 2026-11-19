@@ -294,6 +294,57 @@ def record_signal_paths(cfg, db: DB, now: int | None = None) -> int:
     return n
 
 
+ANATOMY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS signal_anatomy (
+    signal_id INTEGER PRIMARY KEY, symbol TEXT, side INTEGER, exit TEXT, reversal INTEGER, mfe REAL,
+    anatomy TEXT, done_ts INTEGER
+);
+"""
+
+
+def label_anatomy(cfg, db: DB, now: int | None = None, max_rows: int = 400) -> int:
+    """Once the tracked plan has exited: the trade's anatomy (entry -> peak -> exit) for every recorded grind
+    and every sent grind signal. Reversals (in profit first, then stopped) are flagged."""
+    import json
+    from .grindlab import _daily, ensure_live_schema
+    from .levels import major_levels
+    from .reversal import anatomy
+    ensure_live_schema(db)
+    db.conn.executescript(ANATOMY_SCHEMA)
+    gs = cfg.grindsignal
+    pl = gs.plans[gs.primary]
+    now = now or int(time.time() * 1000)
+    old = now - (gs.hours + 48) * HOUR
+    n = 0
+    daily = {}
+
+    def lv(sym, t):
+        try:
+            if sym not in daily:
+                daily[sym] = _daily(db, sym).reset_index()
+            return major_levels(daily[sym], t)
+        except Exception:                                 # no daily candles yet
+            return []
+    for r in db.query("SELECT symbol, ts, side, price FROM grind_live WHERE anatomy IS NULL AND ts > ? AND ts <= ? "
+                      "ORDER BY ts LIMIT ?", (old, now - 30 * 60_000, max_rows)):
+        a = anatomy(db, r["symbol"], r["side"], int(r["ts"]), pl, gs.hours, levels=lv(r["symbol"], int(r["ts"])))
+        if a is None:
+            continue
+        db.execute("UPDATE grind_live SET anatomy=? WHERE symbol=? AND ts=? AND side=?",
+                   (json.dumps(_clean(a)), r["symbol"], r["ts"], r["side"]))
+        n += 1
+    for r in db.query("""SELECT s.id, s.symbol, s.side, s.ts, s.entry FROM signals s WHERE s.kind='grindsig' AND s.ts > ?
+                         AND NOT EXISTS (SELECT 1 FROM signal_anatomy a WHERE a.signal_id = s.id)""", (old,)):
+        a = anatomy(db, r["symbol"], r["side"], int(r["ts"]), pl, gs.hours, entry_px=r["entry"],
+                    levels=lv(r["symbol"], int(r["ts"])))
+        if a is None:
+            continue
+        db.execute("INSERT OR REPLACE INTO signal_anatomy VALUES (?,?,?,?,?,?,?,?)",
+                   (r["id"], r["symbol"], r["side"], a["exit"], int(a["reversal"]), a["mfe"], json.dumps(_clean(a)), now))
+        n += 1
+    return n
+
+
 def label_after_exit(cfg, db: DB, now: int | None = None) -> int:
     """Every recorded grind, (hours + after_hours) after detection: each plan's exit and the 24h that followed."""
     import json

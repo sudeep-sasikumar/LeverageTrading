@@ -139,6 +139,12 @@ button.link:hover{border-color:var(--accent)}
     <div class="tiles" id="grindTiles"></div>
     <h2 id="allTitle">Every grind detected (last 3 days) — sent or not, with how each plan did after 24h</h2>
     <div class="panel scroll" id="grindAll"></div>
+    <h2 id="anatTitle">Went our way, then reversed to the stop — what changed (5x plan, last 7 days)</h2>
+    <p class="muted">Every grind is followed from entry to its best point (the peak) to the exit. A reversal = at least +0.5% in profit, then the
+    −1% stop. Medians compare reversals with trades that reached the target. Taker flow: +1 all takers pushing our way, −1 all against.
+    Lead = minutes before the stop that the clue appeared (none = it did not appear before the stop).</p>
+    <div class="panel scroll" id="anatMed"></div>
+    <div class="panel scroll" id="anatRev" style="margin-top:12px"></div>
     <h2>Grinding right now (last 48h) — traits</h2><div class="panel scroll" id="grindLive"></div>
     <h2>Grind signals: how each plan did (every signal, scored after 24h)</h2><div class="panel scroll" id="planStats"></div>
     <h2>Grind signals</h2><div class="panel scroll" id="grindTrades"></div>
@@ -309,6 +315,23 @@ function render(d) {
       r.decision === "sent" ? '<span class="chip accent">sent</span>' : '<span class="muted">' + esc((r.decision || "–").replace("skipped:", "").split(" (")[0]) + "</span>", lvCell(r)]
       .concat(planNames.map(n => planCell(r, n))).concat([moveCell(r.best24, r, "best", 1), moveCell(r.worst24, r, "worst", -1)])),
     "No grinds recorded yet (the scan runs every 5 minutes).");
+  const an = d.anatomy || {n: {}, medians: [], reversals: []};
+  const fmtF = (k, v) => v == null ? "–" : (["mfe", "btc_fall", "mkt_fall", "oi_run", "oi_fall", "level_peak"].includes(k) ? signed(v * 100, 2, "%") :
+    ["to_peak", "peak_to_exit"].includes(k) ? num(v, 0) + " min" : k === "liq_against" ? "$" + Math.round(v).toLocaleString() :
+    k.startsWith("rvol") || k === "wall_peak" ? num(v, 1) + "x" : k === "wick" ? pct(v, 0) + " of the candle" : signed(v, 2, ""));
+  $("anatTitle").textContent = `Went our way, then reversed to the stop — what changed (5x plan, last 7 days: ${an.n.reversal || 0} reversals, ${an.n.target || 0} targets, ${an.n.stop || 0} other stops)`;
+  table($("anatMed"), [["Factor (median)"],["Reversals","num"],["Reached target","num"],["Stopped without a run","num"]],
+    an.medians.map(m => [esc(m.factor), fmtF(m.key, m.reversal), fmtF(m.key, m.target), fmtF(m.key, m.stop)]),
+    "Filled in as grinds exit (needs the trade to reach its target or stop).");
+  const lead = v => v == null ? '<span class="muted">none</span>' : num(v, 0) + " min";
+  table($("anatRev"), [["Detected"],["Coin"],["Side"],["Best","num"],["To peak","num"],["Peak→stop","num"],["Flow run→fall"],["Volume after peak","num"],
+                       ["BTC after peak","num"],["Market after peak","num"],["Liq. against","num"],["OI run / fall"],["Book at peak","num"],["Level near peak"],
+                       ["Close back at entry"],["Close through EMA20"],["Broke run's swing"]],
+    an.reversals.map(x => [dt(x.ts), coin(x.symbol), side(x.side), fmtF("mfe", x.mfe), fmtF("to_peak", x.to_peak), fmtF("peak_to_exit", x.peak_to_exit),
+      `${fmtF("flow_run", x.flow_run)} → ${fmtF("flow_fall", x.flow_fall)}`, fmtF("rvol_fall", x.rvol_fall), fmtF("btc_fall", x.btc_fall), fmtF("mkt_fall", x.mkt_fall),
+      fmtF("liq_against", x.liq_against), `${fmtF("oi_run", x.oi_run)} / ${fmtF("oi_fall", x.oi_fall)}`, fmtF("book_peak", x.book_peak),
+      x.level ? `${esc(x.level)} (${fmtF("level_peak", x.level_peak)})` : "–", lead(x.lead_entry), lead(x.lead_ema), lead(x.lead_swing)]),
+    "No reversals recorded yet.");
   table($("planStats"), [["Plan"],["Signals scored","num"],["Won","num"],["Avg per trade","num"],["Avg on margin","num"],["Total on margin","num"]],
     (d.plan_stats || []).map(r => [esc(r.plan), r.n, pct(r.win, 0), signed(r.net * 100, 2, "%"), signed(r.margin * 100, 1, "%"),
       signed(r.total_margin * 100, 0, "%")]), "No grind signal has completed its 24 hours yet.");

@@ -82,6 +82,67 @@ def _stats(rows: list[dict]) -> dict:
             "time": sum(1 for r in rows if r["status"] == "time")}
 
 
+ANAT_FACTORS = [  # (key, label, path in the anatomy JSON)
+    ("mfe", "Best move before exit", ("mfe",)),
+    ("to_peak", "Minutes to the peak", ("minutes_to_peak",)),
+    ("peak_to_exit", "Minutes peak to exit", ("minutes_peak_to_exit",)),
+    ("flow_run", "Taker flow, entry to peak", ("run", "taker_flow")),
+    ("flow_turn", "Taker flow at the turn", ("turn", "taker_flow")),
+    ("flow_fall", "Taker flow after the peak", ("fall", "taker_flow")),
+    ("rvol_turn", "Volume at the turn (x before entry)", ("turn", "rvol")),
+    ("rvol_fall", "Volume after the peak (x before entry)", ("fall", "rvol")),
+    ("wick", "Wick against us on the peak candle", ("peak_wick_against",)),
+    ("btc_fall", "BTC after the peak", ("fall", "btc")),
+    ("mkt_fall", "Market (median coin) after the peak", ("fall", "mkt_med")),
+    ("liq_against", "Liquidations against us after the peak ($)", ("fall", "liq_against_usd")),
+    ("oi_run", "Open interest change, entry to peak", ("oi_chg_run",)),
+    ("oi_fall", "Open interest change, peak to exit", ("oi_chg_fall",)),
+    ("book_peak", "Order-book imbalance at the peak (1%)", ("book", "peak", "imb_1")),
+    ("wall_peak", "Wall ahead at the peak (x median level)", ("book", "peak", "wall_ahead_x")),
+    ("level_peak", "Nearest major level from the peak", ("peak_level", "dist_from_peak")),
+]
+
+
+def _dig(o, path):
+    for k in path:
+        if not isinstance(o, dict):
+            return None
+        o = o.get(k)
+    return o if isinstance(o, (int, float)) and not isinstance(o, bool) else None
+
+
+def anatomy_summary(rows: list[dict]) -> dict:
+    """Reversals (in profit, then stopped) vs trades that reached the target vs other stops: medians of each factor,
+    and the list of recent reversals with their main clues."""
+    groups = {"reversal": [], "target": [], "stop": []}
+    rev = []
+    for r in rows:
+        a = json.loads(r["anatomy"] or "null")
+        if not a or a.get("exit") == "time":
+            continue
+        g = "reversal" if a.get("reversal") else a.get("exit")
+        if g in groups:
+            groups[g].append(a)
+        if g == "reversal":
+            x = {k: _dig(a, p) for k, _, p in ANAT_FACTORS}
+            ex = a.get("minutes_to_exit")
+            for clue, key in (("ema", "first_close_through_ema20_min"), ("entry", "first_close_back_at_entry_min"),
+                              ("swing", "first_close_through_swing_min")):
+                v = a.get(key)
+                x[f"lead_{clue}"] = (ex - v) if (v is not None and ex is not None) else None
+            x.update({"symbol": r["symbol"], "ts": r["ts"], "side": r["side"],
+                      "level": (a.get("peak_level") or {}).get("what"), "news": len(a.get("announcements") or [])})
+            rev.append(x)
+    med = []
+    for k, label, p in ANAT_FACTORS:
+        row = {"factor": label, "key": k}
+        for g, items in groups.items():
+            v = sorted(x for x in (_dig(a, p) for a in items) if x is not None)
+            row[g] = v[len(v) // 2] if v else None
+        med.append(row)
+    return {"n": {g: len(v) for g, v in groups.items()}, "medians": med, "reversals": rev[:300]}
+
+
 def snapshot(db_path: Path) -> dict:
     """Everything the page shows, in one read-only pass."""
     now = int(time.time() * 1000)
@@ -188,6 +249,9 @@ def snapshot(db_path: Path) -> dict:
                         r["progress"] = {"plans": pr.get("plans"), "best": pr.get("best"), "worst": pr.get("worst"),
                                          "as_of": pr.get("as_of")}
                 out["grind_all"] = allg
+                if "anatomy" in cols_gl:
+                    out["anatomy"] = anatomy_summary(q("SELECT symbol, ts, side, anatomy FROM grind_live WHERE anatomy IS NOT NULL "
+                                                       "AND ts>=? ORDER BY ts DESC LIMIT 3000", (now - 7 * DAY,)))
                 out["grinds_recorded"] = q("SELECT COUNT(*) n, SUM(outcomes IS NOT NULL) labelled FROM grind_live")[0]
         if q("SELECT 1 FROM sqlite_master WHERE type='table' AND name='grind_episodes'"):
             out["grind_episodes"] = q("SELECT symbol, side, start, end, move, hours, tags FROM grind_episodes "
