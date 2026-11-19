@@ -211,6 +211,8 @@ def test_after_exit_follows_price_for_24h_after_the_stop():
 
 def test_signal_shows_levels_and_can_skip_when_a_level_blocks(tmp_path):
     cfg, db, tg = Config(), DB(tmp_path / "v.sqlite"), Notifier()
+    assert cfg.grindsignal.skip_if_level_blocks                         # trader's rule is on by default
+    cfg.grindsignal.skip_if_level_blocks = False
     lv = {"block": [{"price": 10.15, "tf": "weekly", "what": "weekly swing high", "dist": 0.015}],
           "cushion": [{"price": 9.95, "tf": "daily", "what": "previous day low", "dist": -0.005}],
           "block_tf": ["weekly"], "cushion_tf": ["daily"]}
@@ -221,3 +223,7 @@ def test_signal_shows_levels_and_can_skip_when_a_level_blocks(tmp_path):
     c2 = cand(cfg, "LVL2USDT", 0.2) | {"levels": lv}
     asyncio.run(SignalEngine(cfg, db, None, tg).decide([c2], None, NOW))
     assert c2["decision"] == "skipped:level_in_way"
+    clear = {"block": [], "cushion": lv["cushion"], "block_tf": [], "cushion_tf": ["daily"]}
+    c3 = cand(cfg, "CLRUSDT", 0.2) | {"levels": clear}
+    asyncio.run(SignalEngine(cfg, db, None, tg).decide([c3], None, NOW))
+    assert c3["decision"] == "sent" and "No daily/weekly/monthly level before" in tg.sent[-1]

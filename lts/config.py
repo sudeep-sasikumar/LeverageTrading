@@ -119,9 +119,9 @@ class GrindSignal:
     live: bool = False                   # PAPER unless the primary plan's band qualifies AND this is switched on
     scan_delay_s: int = 60               # grind scan runs this long after each 5-minute candle closes
     after_hours: int = 24                # price is followed this long after each plan's exit (target, stop or time)
-    skip_if_level_blocks: bool = False   # skip a signal when a daily/weekly/monthly level sits between entry and
-                                         # target. Off: on the year it did not help (DESIGN.md section 23); the
-                                         # levels are shown on every signal and recorded on every grind
+    skip_if_level_blocks: bool = True    # trader's rule: skip a signal when a daily/weekly/monthly level sits between
+                                         # entry and target (on the year it neither helped nor hurt: DESIGN.md
+                                         # section 23). Skipped grinds are still recorded with their levels
 
 
 @dataclass

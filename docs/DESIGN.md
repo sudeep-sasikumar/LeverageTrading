@@ -835,3 +835,8 @@ records per plan: exit type and minute, the best and worst move and the close 1h
 exit (from the exit price, in the trade's direction), and whether a stopped trade went on to reach
 the target (`grind_live.after_exit`, filled 48h after detection). Every sent signal also stores its
 5-minute candles from 6h before to 48h after (`signal_paths`).
+
+**Update (19 Nov 2026):** the trader chose to skip calls with a level before the target anyway
+(`skip_if_level_blocks = True`). On the year that rule removes about half the calls without
+changing the win rate. Skipped grinds are still recorded, with decision "level in way", so the
+rule can be judged on live results.
