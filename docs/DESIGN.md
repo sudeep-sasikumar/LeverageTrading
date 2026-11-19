@@ -803,3 +803,35 @@ matched to the LTS signal for the same coin and side sent up to 6h before it was
 are logged from the form, or by Claude from exchange screenshots. They are stored in a separate
 file (`data/my_trades.sqlite`), so the trading database stays read-only to the dashboard. Writes
 need the login cookie and a JSON body.
+
+## 23. Levels between entry and target / stop, and price after the exit (19 Nov 2026)
+
+**Trader's rules tested** on 63,528 early grinds (Oct 2025 – Nov 2026), 5x +2% / −1% with taker fees
+both ways (break-even about 41% wins). Levels (`lts/levels.py`), from candles closed before the
+grind: previous day/week/month high and low, and swing highs/lows on daily (±3 days, 180 days),
+weekly (±2 weeks, 2 years) and monthly (±1 month, 3 years) charts. Judged on the first 7 months,
+confirmed on the last 7.
+
+| Rule | First 7 months | Last 7 months |
+|---|---|---|
+| All grinds | won 33.7%, −0.20% | won 32.3%, −0.24% |
+| No level before the target (any timeframe) | 34.0%, −0.19% | 32.0%, −0.25% |
+| A level before the target | 33.3%, −0.21% | 32.6%, −0.23% |
+| No weekly/monthly level before the target | 33.7%, −0.19% | 32.5%, −0.23% |
+| Monthly level between entry and stop | 37.1%, −0.09% | 33.5%, −0.21% |
+| Weekly/monthly level between entry and stop | 35.8%, −0.13% | 32.6%, −0.23% |
+| No level before target + weekly/monthly level by the stop | 37.1%, −0.09% | 32.9%, −0.22% |
+| Live model top 20% + no level before the target | 35.0%, −0.16% | 33.0%, −0.22% |
+
+A level before the target did not lower the win rate (it was slightly higher in the last 7 months).
+A weekly/monthly level between entry and stop looked helpful in the first 7 months but faded to
+about 1 point in the last 7. Neither rule is used to skip or rank signals
+(`grindsignal.skip_if_level_blocks = False`, can be switched on). Instead every grind records its
+levels (`grind_live.levels`), every signal shows them (⚠ level before the target, 🛡 level between
+entry and stop) and the dashboard has a column for them, so the rules can be re-tested on live data.
+
+**Price after the exit.** 24h after each plan's exit (target, stop or 24h time exit), every grind
+records per plan: exit type and minute, the best and worst move and the close 1h/4h/24h after the
+exit (from the exit price, in the trade's direction), and whether a stopped trade went on to reach
+the target (`grind_live.after_exit`, filled 48h after detection). Every sent signal also stores its
+5-minute candles from 6h before to 48h after (`signal_paths`).

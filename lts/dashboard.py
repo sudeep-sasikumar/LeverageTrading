@@ -172,11 +172,15 @@ def snapshot(db_path: Path) -> dict:
             cols_gl = {r["name"] for r in q("PRAGMA table_info(grind_live)")}
             if "outcomes" in cols_gl:
                 prog = ", progress" if "progress" in cols_gl else ", NULL AS progress"
+                prog += ", levels" if "levels" in cols_gl else ", NULL AS levels"
                 allg = q("SELECT symbol, ts, side, model_p, threshold, decision, outcomes" + prog + " FROM grind_live "
                          "WHERE ts>=? ORDER BY ts DESC LIMIT 2500", (now - 3 * DAY,))
                 for r in allg:
                     o = json.loads(r.pop("outcomes") or "null") or {}
                     pr = json.loads(r.pop("progress") or "null") or {}
+                    lv = json.loads(r.pop("levels") or "null")
+                    r["levels"] = None if lv is None else {"block": [x["tf"] for x in lv.get("block", [])][:3],
+                                                           "cushion": [x["tf"] for x in lv.get("cushion", [])][:3]}
                     r["plans"] = o.get("plans")
                     r["best24"] = (o.get("best") or {}).get("24")
                     r["worst24"] = (o.get("worst") or {}).get("24")

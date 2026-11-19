@@ -147,7 +147,8 @@ def test_five_minute_scans_record_about_once_an_hour_and_when_the_score_crosses(
     from lts.service import Service
     cfg, db = Config(), DB(tmp_path / "f.sqlite")
     ensure_live_schema(db)
-    me = SimpleNamespace(cfg=cfg, db=db, gs_bundle={"bands": [{"top": 0.2, "p_min": 0.15}]}, gs_loaded=_t.time())
+    me = SimpleNamespace(cfg=cfg, db=db, gs_bundle={"bands": [{"top": 0.2, "p_min": 0.15}]}, gs_loaded=_t.time(),
+                         grind_levels=lambda rows: None)
     scores = iter([0.10, 0.11, 0.16, 0.17])
     monkeypatch.setattr(GS, "pre_from_db", lambda *a: None)
     monkeypatch.setattr(GS, "score_rows", lambda rows, pres, b: [r.update(p=next(scores), band=None) for r in rows])
@@ -174,3 +175,49 @@ def test_grind_signals_are_not_stopped_by_earlier_losses(tmp_path):
     cs = [cand(cfg, "NEWUSDT", 0.2), cand(cfg, "L0USDT", 0.2)]
     asyncio.run(SignalEngine(cfg, db, None, tg).decide(cs, None, NOW))
     assert cs[0]["decision"] == "sent" and cs[1]["decision"] == "skipped:symbol_cooldown"
+
+
+def test_levels_between_entry_target_and_stop():
+    import pandas as pd
+    from lts.levels import between, major_levels
+    day = 86_400_000
+    t0 = NOW // day * day - 60 * day
+    hs = [10.0] * 60
+    ls = [9.0] * 60
+    hs[40] = 10.4                                    # a daily swing high 40 days in (known 3 days later)
+    ls[50] = 8.95                                    # a daily swing low
+    d = pd.DataFrame({"ts": [t0 + i * day for i in range(60)], "h": hs, "l": ls})
+    lv = major_levels(d, t0 + 60 * day)
+    assert any(x["what"] == "daily swing high" and x["price"] == 10.4 for x in lv)
+    assert not any(x["price"] == 10.4 for x in major_levels(d, t0 + 42 * day))   # not yet confirmed then
+    b = between(lv, 10.25, 1, 0.02, 0.01)            # long at 10.25: target 10.455, stop 10.1475
+    assert {x["price"] for x in b["block"]} == {10.4} and b["block"][0]["dist"] > 0     # also the weekly/monthly high
+    assert b["block_tf"] == ["monthly", "weekly", "daily"]
+    s = between(lv, 9.05, -1, 0.02, 0.01)            # short at 9.05: target 8.869 -> the 8.95 low and 9.0 lows are in the way
+    assert {x["price"] for x in s["block"]} >= {8.95, 9.0} and not s["cushion"]
+
+
+def test_after_exit_follows_price_for_24h_after_the_stop():
+    from lts.grindsignal import after_exit
+    plans = [{"leverage": 5, "target": 0.02, "stop": 0.01}]
+    post = np.full((577, 4), 100.0)
+    post[:, 1], post[:, 2] = 100.05, 99.95
+    post[10, 2] = 98.9                               # stopped at bar 10 (-1.1%)
+    post[100, 1] = 102.5                             # then ran to +2.5% (the target came after the stop)
+    a = after_exit(post, 1, plans, 24, 24)["5x +2.00% / -1.00%"]
+    assert a["exit"] == "stop" and a["exit_min"] == 55 and a["target_after_stop"]
+    assert abs(a["best_24h"] - (102.5 / 99.0 - 1)) < 1e-9 and a["bars_after"] == 288
+
+
+def test_signal_shows_levels_and_can_skip_when_a_level_blocks(tmp_path):
+    cfg, db, tg = Config(), DB(tmp_path / "v.sqlite"), Notifier()
+    lv = {"block": [{"price": 10.15, "tf": "weekly", "what": "weekly swing high", "dist": 0.015}],
+          "cushion": [{"price": 9.95, "tf": "daily", "what": "previous day low", "dist": -0.005}],
+          "block_tf": ["weekly"], "cushion_tf": ["daily"]}
+    c = cand(cfg, "LVLUSDT", 0.2) | {"levels": lv}
+    asyncio.run(SignalEngine(cfg, db, None, tg).decide([c], None, NOW))
+    assert c["decision"] == "sent" and "weekly swing high" in tg.sent[0] and "previous day low" in tg.sent[0]
+    cfg.grindsignal.skip_if_level_blocks = True
+    c2 = cand(cfg, "LVL2USDT", 0.2) | {"levels": lv}
+    asyncio.run(SignalEngine(cfg, db, None, tg).decide([c2], None, NOW))
+    assert c2["decision"] == "skipped:level_in_way"

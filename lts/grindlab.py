@@ -748,6 +748,8 @@ CREATE TABLE IF NOT EXISTS grind_live (
     outcomes TEXT,                     -- after 24h: every plan + a target/stop grid + best/worst moves (JSON)
     outcome_ts INTEGER,
     progress TEXT,                     -- under 24h: each plan once decided, best/worst so far (JSON)
+    after_exit TEXT,                   -- 48h: each plan's exit and how price moved in the 24h after it (JSON)
+    levels TEXT,                       -- daily/weekly/monthly levels between entry and target / stop (JSON)
     PRIMARY KEY (symbol, ts, side)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS grind_episodes (
@@ -764,7 +766,8 @@ def ensure_live_schema(db: DB) -> None:
     db.conn.executescript(LIVE_SCHEMA)
     have = {r[1] for r in db.conn.execute("PRAGMA table_info(grind_live)")}
     for col, typ in (("all_factors", "TEXT"), ("micro", "TEXT"), ("threshold", "REAL"), ("outcomes", "TEXT"),
-                     ("outcome_ts", "INTEGER"), ("progress", "TEXT")):
+                     ("outcome_ts", "INTEGER"), ("progress", "TEXT"),
+                     ("after_exit", "TEXT"), ("levels", "TEXT")):
         if col not in have:
             db.conn.execute(f"ALTER TABLE grind_live ADD COLUMN {col} {typ}")
     db.conn.commit()

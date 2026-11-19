@@ -207,6 +207,8 @@ class SignalEngine:
                 reason = "too_volatile"
             elif c.get("kind") == "grind" and not cfg.grind.signals_from_5m:
                 reason = "logged_only"                    # grind signals come from the grind scanner
+            elif c.get("kind") == "grindsig" and cfg.grindsignal.skip_if_level_blocks and (c.get("levels") or {}).get("block"):
+                reason = "level_in_way"                   # a daily/weekly/monthly level before the target
             elif c.get("kind", "momentum") == "momentum" and not cfg.signal.momentum_send:
                 reason = "logged_only"                    # momentum setups: recorded for learning, not sent
             else:
@@ -297,6 +299,7 @@ class SignalEngine:
             if h:
                 lines.append(f"     history ({top}, unseen months): won {h['win']:.0%}, {h['net'] * 100:+.2f}% per trade, "
                              f"{h['margin'] * 100:+.1f}% margin avg")
+        lines += self._level_lines(c, prec)
         f = c.get("features", {})
         lines.append(f"6h {f.get('r_6h', 0) * 100:+.1f}% · 24h {f.get('r_24h', 0) * 100:+.1f}% · "
                      f"steadiness R² {f.get('sh_r2_6h', float('nan')):.2f}")
@@ -304,6 +307,26 @@ class SignalEngine:
         lines.append(f'<a href="{weex_url(sig["symbol"])}">📈 Open {esc(sig["symbol"])} on Weex</a>')
         lines.append(f"#S{sig['id']}")
         return "\n".join(lines)
+
+    def _level_lines(self, c, prec) -> list[str]:
+        """Daily/weekly/monthly levels between entry and the tracked plan's target, and between entry and its stop."""
+        lv = c.get("levels")
+        if lv is None:
+            return []
+        from .levels import describe
+        g = self.cfg.grindsignal
+        pl = g.plans[g.primary]
+        word = "resistance" if c["side"] > 0 else "support"
+        fmt = lambda p: fmt_price(p, prec)
+        out = [""]
+        if lv.get("block"):
+            out.append(f"⚠️ Level before the {pl['leverage']}x target ({word}): " +
+                       "; ".join(esc(describe(x, fmt)) for x in lv["block"][:3]))
+        else:
+            out.append(f"✅ No daily/weekly/monthly level before the {pl['leverage']}x target")
+        if lv.get("cushion"):
+            out.append("🛡 Level between entry and stop: " + "; ".join(esc(describe(x, fmt)) for x in lv["cushion"][:3]))
+        return out
 
     def _daily_message(self, sig, c, plan, prec, icon, word) -> str:
         a = self.cfg.aim

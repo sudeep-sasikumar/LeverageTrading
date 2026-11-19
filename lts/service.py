@@ -216,9 +216,11 @@ class Service:
                     last_hour = now.hour
                     await self.collector.collect_slow()
                     label_matured(self.cfg, self.db)
-                    from .grindsignal import label_grinds, label_signal_plans
+                    from .grindsignal import label_after_exit, label_grinds, label_signal_plans, record_signal_paths
                     label_signal_plans(self.cfg, self.db)
                     label_grinds(self.cfg, self.db)
+                    label_after_exit(self.cfg, self.db)
+                    record_signal_paths(self.cfg, self.db)
                     if now.hour % 6 == 0:
                         await refresh_universe(self.cfg, self.db, self.binance, self.weex)
                 day = now.strftime("%Y-%m-%d")
@@ -359,7 +361,26 @@ class Service:
             if not last or crossed:
                 keep.append(r)
         _insert_live(self.db, keep)
+        self.grind_levels(keep)
         return keep
+
+    def grind_levels(self, rows: list[dict]) -> None:
+        """Daily/weekly/monthly levels between entry and the tracked plan's target and stop, for each recorded grind."""
+        import json
+        from .grindlab import _daily
+        from .levels import between, major_levels
+        g = self.cfg.grindsignal
+        pl = g.plans[g.primary]
+        for r in rows:
+            try:
+                d = _daily(self.db, r["symbol"]).reset_index()
+                lv = between(major_levels(d, r["ts"]), r["price"], r["side"], pl["target"], pl["stop"])
+            except Exception:
+                log.exception("levels for %s", r["symbol"])
+                continue
+            r["levels"] = lv
+            self.db.execute("UPDATE grind_live SET levels=? WHERE symbol=? AND ts=? AND side=?",
+                            (json.dumps(lv), r["symbol"], r["ts"], r["side"]))
 
     async def grind_signals(self, rows: list[dict], meta: dict) -> None:
         """Send ALL recorded grinds whose model score is at or above the top-share threshold."""
@@ -376,7 +397,7 @@ class Service:
             m = meta.get(r["symbol"], {})
             picks.append({"symbol": r["symbol"], "side": r["side"], "ts": r["ts"], "ref_price": r["price"],
                           "atr_pct": r.get("atr_1h"), "kind": "grindsig", "p_model": r["p"], "band": r["band"],
-                          "p_min": p_min,
+                          "p_min": p_min, "levels": r.get("levels"),
                           "on_weex": bool(m.get("on_weex")), "src": "binance", "price_precision": m.get("price_precision"),
                           "features": {k: r.get(k) for k in ("r_6h", "r_24h", "sh_r2_6h") if r.get(k) is not None}})
         for p in picks:

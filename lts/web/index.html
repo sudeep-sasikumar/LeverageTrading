@@ -301,9 +301,12 @@ function render(d) {
     (r.progress && r.progress[key] != null ? `<span class="muted">${signed(sign * r.progress[key] * 100, 1, "%")} so far</span>` : "–");
   const gr = d.grinds_recorded || {};
   $("allTitle").textContent = `Every grind detected (last 3 days) — ${ga.length} shown; ${(gr.n || 0).toLocaleString()} recorded in total, ${(gr.labelled || 0).toLocaleString()} with 24h outcomes`;
-  table($("grindAll"), [["Time"],["Coin"],["Side"],["Model score","num"],["Needed","num"],["Sent?"]].concat(planNames.map(n => [esc(n), "num"])).concat([["Best 24h","num"],["Worst 24h","num"]]),
+  const lvCell = r => !r.levels ? '<span class="muted">–</span>' :
+    (r.levels.block.length ? `<span class="neg" title="a level sits between entry and the target">⚠ ${esc([...new Set(r.levels.block)].join(", "))}</span>` : '<span class="pos">clear</span>') +
+    (r.levels.cushion.length ? ` <span class="muted" title="a level sits between entry and the stop">🛡 ${esc([...new Set(r.levels.cushion)].join(", "))}</span>` : "");
+  table($("grindAll"), [["Time"],["Coin"],["Side"],["Model score","num"],["Needed","num"],["Sent?"],["Levels to target / stop"]].concat(planNames.map(n => [esc(n), "num"])).concat([["Best 24h","num"],["Worst 24h","num"]]),
     ga.map(r => [dt(r.ts), coin(r.symbol), side(r.side), r.model_p == null ? "–" : num(r.model_p, 3), r.threshold == null ? "–" : num(r.threshold, 3),
-      r.decision === "sent" ? '<span class="chip accent">sent</span>' : '<span class="muted">' + esc((r.decision || "–").replace("skipped:", "").split(" (")[0]) + "</span>"]
+      r.decision === "sent" ? '<span class="chip accent">sent</span>' : '<span class="muted">' + esc((r.decision || "–").replace("skipped:", "").split(" (")[0]) + "</span>", lvCell(r)]
       .concat(planNames.map(n => planCell(r, n))).concat([moveCell(r.best24, r, "best", 1), moveCell(r.worst24, r, "worst", -1)])),
     "No grinds recorded yet (the scan runs every 5 minutes).");
   table($("planStats"), [["Plan"],["Signals scored","num"],["Won","num"],["Avg per trade","num"],["Avg on margin","num"],["Total on margin","num"]],
