@@ -942,3 +942,44 @@ turn one −1% loss into several smaller losses plus fees, and cut winners.
 24h after detection (`lts/exits.py`, `grind_live.exits`), and the Grinders tab shows the live
 record per rule for all grinds and for steady grinds. If live trades disagree with the year, it
 will show there.
+
+## 27. How far the 5x winners run after +2% (20 Nov 2026)
+
+A winner = touched +2% before −1% (5x plan). From that moment to 24h after entry (year data,
+63,528 grinds; scripts `runners*.py`):
+
+| | All grinds | Old rule (model top 20%) | New rule (all-day steady) |
+|---|---|---|---|
+| Winners | 20,984 (33.0%) | 3,338 (33.9%) | 205 (38.0%) |
+| Best point within 24h, median (p25 / p75) | 6.2% (3.8 / 10.4) | 6.0% (3.7 / 10.2) | 7.3% (4.3 / 12.6) |
+| Reached +3% / +5% / +10% at some point | 86% / 62% / 26% | 85% / 61% / 26% | 91% / 69% / 34% |
+| ...before first falling back to +1% | 50% / 24% / 9% | 50% / 26% / 9% | 48% / 25% / 10% |
+| Came back to +1% after the +2% touch | 89% | 87% | 94% |
+| Came back to entry | 78% | 75% | 84% |
+| Close at 24h, median | +1.3% | +1.5% | +1.2% |
+| Minutes to +2% / to the best point, median | 55 / 595 | 60 / 595 | 50 / 615 |
+
+Live since 17 Nov (1,061 recorded grinds with 24h results): 5x winners' best point within 24h
+median 6.2%, reached +3% 85%, +5% 60%, +10% 28% — the same as the year.
+
+**So the winners do run, but mostly after a pullback.** Nine in ten come back to +1% after
+touching +2% (eight in ten all the way to entry) before the big move, which comes many hours later.
+Holding for it means sitting through that pullback.
+
+**Exits after +2%**, compared with taking +2% (per trade, all trades, first 7 / last 7 months).
+5m candles cannot tell whether a candle's high or low came first, which decides tight trailing
+stops, so the trailing test was redone on 1-minute candles for every new-rule winner and 1,500
+random other winners, with both orders inside each 1m candle:
+
+| After +2% | All other grinds | New rule |
+|---|---|---|
+| Stop to +1%, take +3% | −0.03% / −0.00% | −0.03% / −0.06% |
+| Stop to +1%, take +5% | −0.04% / +0.00% | +0.05% / −0.10% |
+| Trail 1% behind the best (floor +1%) | −0.02…−0.06% / +0.02…−0.01% | −0.04…−0.08% / −0.03…−0.08% |
+| Trail 0.5% | −0.01…−0.03% / +0.04…+0.02% | −0.01…−0.02% / +0.01…−0.00% |
+| Trail 0.25% | −0.00…+0.01% / +0.04…+0.06% | +0.00…+0.03% / +0.02…+0.06% |
+
+Under the 0.25% trail the median winner banks +1.5% (TP: +1.8% after fees); the small gain comes
+from the few that run. It is at most +0.06% per trade against a plan that loses 0.08–0.26% per
+trade, within the uncertainty of the candle order and of real stop fills on fast spikes. Holding
+for +3% / +5% with the stop at +1% is worse. **Done:** the +2% target stays.
