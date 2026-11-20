@@ -866,3 +866,42 @@ Recorded, all in the trade's direction:
 Dashboard, Grinders tab: medians for reversals vs targets vs other stops, and every reversal of the
 last 7 days with its clues. Once enough trades are recorded, these are tested for an early-exit
 rule (exit at clue X instead of waiting for the stop), on unseen weeks.
+
+## 25. Strict review after the first live days; signals = all-day steady grinds only (20 Nov 2026)
+
+**Live record (5-minute scanner, model's top 20%, 5x +2% / −1%):** 79 closed signals, 24 targets,
+55 stops (30% won; break-even about 41% with taker fees both ways). Stops were fast: median 16
+minutes, 38 of 55 within 30 minutes; targets took a median 72 minutes. Repeat calls on the same coin
+within 24h (27% won), direction flips (31%), clustered calls (30%) and isolated ones (33%) did not
+differ meaningfully. The live result matches what the year said for this rule (34% won).
+
+**Ten rules, written down before testing**, on 63,528 grinds (first 7 months / last 7 months):
+
+| Rule | First 7 months | Last 7 months |
+|---|---|---|
+| All grinds | 33.7%, −0.20% | 32.3%, −0.24% |
+| R1 all-day grinder (24h ≥ 8%, R² 24h ≥ 0.8, ≥ 15/24 hours its way) | 32.6%, −0.23% | 33.9%, −0.19% |
+| R2 very steady 6h (R² ≥ 0.9, ≥ 5/6 hours, no hour > 35%) | 34.0%, −0.19% | 33.1%, −0.21% |
+| **R3 = R1 + R2** (1.4 a day) | **36.5%, −0.11%** | **39.6%, −0.01%** |
+| R4 with the market and BTC (6h) | 33.6% | 32.5% |
+| R5 against the market (own move) | 34.3% | 32.4% |
+| R6 not chasing (last 1h ≤ 1.5%, last candle ≤ 0.4%) | 34.1% | 32.7% |
+| R7 quiet 5m candles (median range ≤ 0.25%) | 36.5% | 33.9% |
+| R8 first call per coin per 24h | 34.2% | 32.2% |
+
+None passed the bar set beforehand (positive after fees, t ≥ 2, ≥ 60% of months positive). R3 was
+the only consistent improvement, so it was checked for luck: across 324 neighbouring settings
+(each threshold moved up and down) the median win rate on the last 7 months was 36.4% (10th–90th
+percentile 33.4–39.0%), against 32.3% for all grinds. Stricter settings were better in both
+halves. The model's score adds nothing to R3 (R3 + model top 20%: 31.9% won; R3 outside it:
+39.7%), and neither does the level rule (38.3% with no level before the target, 37.6% with one).
+
+R3 on the whole year, taker fees both ways: 539 grinds (1.4 a day); 5x +2% / −1% won 38.0%,
+−0.08% per trade (−0.4% of margin), positive in 5 of 14 months. The model's top 20% (the live
+rule until now) won 34.0%, −0.2% per trade, about 31 a day.
+
+**Change:** `grindsignal.selector = "steady"` — only R3 grinds are sent (the trader's level skip
+still applies). Expected about 1 call a day instead of about 30, with a higher win rate. It is still
+**not shown to be profitable**: the year says close to break-even. Every grind keeps being recorded
+with whether it met the rule (`grind_live.selected`); the dashboard applies the rule to grinds
+recorded before it existed and shows the rule's live 5x record next to the other grinds.

@@ -535,6 +535,53 @@ def progress_grinds(cfg, db: DB, now: int | None = None) -> int:
     return n
 
 
+# Year record of the steady rule (63,528 early grinds, Oct 2025 - Nov 2026; 539 passed, 1.4 a day;
+# taker fee in and out, 0.04% slippage on entry and stop). DESIGN.md section 25.
+STEADY_HISTORY = {
+    "10x +1.00% / -0.50%": {"n": 539, "win": 0.343, "net": -0.00211, "months_pos": 0.07},
+    "5x +2.00% / -1.00%": {"n": 539, "win": 0.380, "net": -0.00084, "months_pos": 0.36},
+    "3x +3.33% / -1.00%": {"n": 539, "win": 0.263, "net": -0.00089, "months_pos": 0.50},
+    "2x +5.00% / -0.75%": {"n": 539, "win": 0.152, "net": -0.00113, "months_pos": 0.43},
+}
+
+
+def steady(r: dict, gs) -> bool:
+    """All-day steady grind: a straight 24h move with most hours the trade's way, and a very straight last 6h
+    in which no single hour did the work. Factors are side-aligned (grindlab.decision_row)."""
+    def v(k):
+        x = r.get(k)
+        return float(x) if x is not None and x == x else float("nan")
+    return (v("r_24h") >= gs.steady_min_r24 and v("r2_24h") >= gs.steady_min_r2_24 and
+            v("hours_with24") >= gs.steady_min_hours24 and v("r2_6h") >= gs.steady_min_r2_6 and
+            v("hours_with6") >= gs.steady_min_hours6 and v("big6") <= gs.steady_max_big6)
+
+
+def selected(r: dict, gs, p_min: float | None) -> bool:
+    if gs.selector == "steady":
+        return steady(r, gs)
+    return r.get("p") is not None and p_min is not None and r["p"] >= p_min
+
+
+def why_not(r: dict, gs, p_min: float | None) -> str:
+    if gs.selector != "steady":
+        return f"below model threshold ({r.get('p', 0):.3f} < {p_min:.3f})"
+    f = lambda k: r.get(k) if r.get(k) is not None else float("nan")
+    miss = []
+    if not f("r_24h") >= gs.steady_min_r24:
+        miss.append(f"24h {f('r_24h') * 100:+.1f}%")
+    if not f("r2_24h") >= gs.steady_min_r2_24:
+        miss.append(f"24h R² {f('r2_24h'):.2f}")
+    if not f("hours_with24") >= gs.steady_min_hours24:
+        miss.append(f"{f('hours_with24'):.0f}/24 hours")
+    if not f("r2_6h") >= gs.steady_min_r2_6:
+        miss.append(f"6h R² {f('r2_6h'):.2f}")
+    if not f("hours_with6") >= gs.steady_min_hours6:
+        miss.append(f"{f('hours_with6'):.0f}/6 hours")
+    if not f("big6") <= gs.steady_max_big6:
+        miss.append(f"one hour {f('big6'):.0%} of the 6h move")
+    return "not steady all day (" + ", ".join(miss) + ")"
+
+
 def weex_url(symbol: str) -> str:
     base = symbol[:-4] if symbol.endswith("USDT") else symbol
     return f"https://www.weex.com/futures/{base}-USDT"

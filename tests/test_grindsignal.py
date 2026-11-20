@@ -146,6 +146,7 @@ def test_five_minute_scans_record_about_once_an_hour_and_when_the_score_crosses(
     from lts.grindlab import ensure_live_schema
     from lts.service import Service
     cfg, db = Config(), DB(tmp_path / "f.sqlite")
+    cfg.grindsignal.selector = "model"                      # this test is about the model-score path
     ensure_live_schema(db)
     me = SimpleNamespace(cfg=cfg, db=db, gs_bundle={"bands": [{"top": 0.2, "p_min": 0.15}]}, gs_loaded=_t.time(),
                          grind_levels=lambda rows: None)
@@ -227,3 +228,45 @@ def test_signal_shows_levels_and_can_skip_when_a_level_blocks(tmp_path):
     c3 = cand(cfg, "CLRUSDT", 0.2) | {"levels": clear}
     asyncio.run(SignalEngine(cfg, db, None, tg).decide([c3], None, NOW))
     assert c3["decision"] == "sent" and "No daily/weekly/monthly level before" in tg.sent[-1]
+
+
+def steady_row(**kw):
+    r = {"r_24h": 0.10, "r2_24h": 0.85, "hours_with24": 16, "r2_6h": 0.93, "hours_with6": 5, "big6": 0.30}
+    r.update(kw)
+    return r
+
+
+def test_steady_rule_and_why_not():
+    gs = Config().grindsignal
+    assert gs.selector == "steady" and GS.steady(steady_row(), gs)
+    assert not GS.steady(steady_row(r_24h=0.05), gs) and not GS.steady(steady_row(big6=0.5), gs)
+    assert not GS.steady(steady_row(r2_24h=None), gs)                     # a missing factor never passes
+    msg = GS.why_not(steady_row(r_24h=0.05, hours_with24=10), gs, None)
+    assert msg.startswith("not steady all day") and "24h +5.0%" in msg and "10/24 hours" in msg
+
+
+def test_steady_signal_message_uses_the_rules_year_record(tmp_path):
+    cfg, db, tg = Config(), DB(tmp_path / "s.sqlite"), Notifier()
+    c = cand(cfg, "STDYUSDT", 0.1) | {"selector": "steady", "p_min": -1.0, "steady": steady_row(),
+                                      "levels": {"block": [], "cushion": []}}
+    asyncio.run(SignalEngine(cfg, db, None, tg).decide([c], None, NOW))
+    msg = tg.sent[0]
+    assert c["decision"] == "sent" and "all-day steady grind" in msg and "16/24 hours" in msg
+    assert "history (steady all-day grinds, past year): won 38%" in msg
+
+
+def test_dashboard_applies_the_rule_to_grinds_recorded_before_it(tmp_path, monkeypatch):
+    import json
+    import lts.dashboard as D
+    from lts.grindlab import ensure_live_schema
+    db = DB(tmp_path / "d.sqlite")
+    ensure_live_schema(db)
+    out = {"plans": {"5x +2.00% / -1.00%": 0.018}}
+    for sym, f in (("GOODUSDT", steady_row()), ("MEHUSDT", steady_row(r2_24h=0.5))):
+        db.execute("INSERT INTO grind_live(symbol, ts, side, price, score, all_factors, outcomes) VALUES (?, ?, 1, 1.0, 5, ?, ?)",
+                   (sym, NOW, json.dumps(f), json.dumps(out)))
+    monkeypatch.setattr(D.time, "time", lambda: (NOW + 3_600_000) / 1000)
+    snap = D.snapshot(tmp_path / "d.sqlite")
+    sel = {r["symbol"]: r["selected"] for r in snap["grind_all"]}
+    assert sel == {"GOODUSDT": 1, "MEHUSDT": 0}
+    assert snap["rule_live"]["selected"] == {"n": 1, "won": 1, "net": 0.018}

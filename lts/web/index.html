@@ -220,6 +220,9 @@ function render(d) {
     statTile("Today", st.today), statTile("Last 7 days", st.d7), statTile("Last 30 days", st.d30),
     statTile("Paper signals (all)", st.paper), statTile("Real signals (all)", st.real),
     statTile("Grind signals (tracked plan: 5x +2% / −1%)", st.grindsig),
+    (() => { const rl = (d.rule_live || {}).selected || {}, ot = (d.rule_live || {}).others || {};
+      return tile("Steady-grind rule, live (5x)", rl.n ? `${rl.won}/${rl.n} won` : "–",
+        rl.n ? `${signed(rl.net * 100, 2, "%")}/trade · other grinds ${ot.n ? Math.round(100 * ot.won / ot.n) + "% won" : "–"}` : "decided grinds that met the rule, last 3 days"); })(),
     statTile("Momentum setup (all)", st.momentum), statTile("Grind setup (all, paper)", st.grind),
     tile("Candidates scanned 24h", d.data ? d.data.candidates_24h : "–", d.data ? `${d.data.labelled.toLocaleString()} labelled in total` : ""),
   ].join("");
@@ -310,8 +313,9 @@ function render(d) {
   const lvCell = r => !r.levels ? '<span class="muted">–</span>' :
     (r.levels.block.length ? `<span class="neg" title="a level sits between entry and the target">⚠ ${esc([...new Set(r.levels.block)].join(", "))}</span>` : '<span class="pos">clear</span>') +
     (r.levels.cushion.length ? ` <span class="muted" title="a level sits between entry and the stop">🛡 ${esc([...new Set(r.levels.cushion)].join(", "))}</span>` : "");
-  table($("grindAll"), [["Time"],["Coin"],["Side"],["Model score","num"],["Needed","num"],["Sent?"],["Levels to target / stop"]].concat(planNames.map(n => [esc(n), "num"])).concat([["Best 24h","num"],["Worst 24h","num"]]),
-    ga.map(r => [dt(r.ts), coin(r.symbol), side(r.side), r.model_p == null ? "–" : num(r.model_p, 3), r.threshold == null ? "–" : num(r.threshold, 3),
+  table($("grindAll"), [["Time"],["Coin"],["Side"],["Model score","num"],["Steady all day?"],["Sent?"],["Levels to target / stop"]].concat(planNames.map(n => [esc(n), "num"])).concat([["Best 24h","num"],["Worst 24h","num"]]),
+    ga.map(r => [dt(r.ts), coin(r.symbol), side(r.side), r.model_p == null ? "–" : num(r.model_p, 3),
+      r.selected == null ? "–" : (r.selected ? '<span class="pos">✓ yes</span>' : '<span class="muted">no</span>') + (r.selected_retro ? ' <span class="muted" title="worked out from the recorded factors">*</span>' : ""),
       r.decision === "sent" ? '<span class="chip accent">sent</span>' : '<span class="muted">' + esc((r.decision || "–").replace("skipped:", "").split(" (")[0]) + "</span>", lvCell(r)]
       .concat(planNames.map(n => planCell(r, n))).concat([moveCell(r.best24, r, "best", 1), moveCell(r.worst24, r, "worst", -1)])),
     "No grinds recorded yet (the scan runs every 5 minutes).");

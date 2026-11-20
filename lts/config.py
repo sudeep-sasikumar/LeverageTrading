@@ -110,7 +110,16 @@ class GrindSignal:
         {"leverage": 2, "target": 0.05, "stop": 0.0075},
     ])
     primary: int = 1                     # tracked plan and model label: 5x +2% / -1% (trader: 1-2% moves at 5-10x)
-    top_share: float = 0.20              # send the best-scoring 20% of grinds (~30 a day) - trader's choice
+    top_share: float = 0.20              # used only when selector = "model"
+    # what gets sent. "steady" (default): only all-day steady grinds (DESIGN.md section 25) - about 1.4 a day,
+    # 5x won 38% on the year vs 34% for the model's top 20%. "model": the minute-shape model's top_share.
+    selector: str = "steady"
+    steady_min_r24: float = 0.08         # moved >= 8% the trade's way over 24h
+    steady_min_r2_24: float = 0.80       # straight 24h path (R^2 of hourly closes)
+    steady_min_hours24: int = 15         # >= 15 of the last 24 hours moved the trade's way
+    steady_min_r2_6: float = 0.90        # very straight last 6h
+    steady_min_hours6: int = 5           # >= 5 of the last 6 hours the trade's way
+    steady_max_big6: float = 0.35        # no single hour did more than 35% of the 6h move
     # every detected grind is labelled after 24h on this grid too (targets x stops), for later tuning
     record_targets: list = field(default_factory=lambda: [0.01, 0.015, 0.02, 0.0333, 0.05])
     record_stops: list = field(default_factory=lambda: [0.003, 0.005, 0.0075, 0.01, 0.015, 0.02])

@@ -280,10 +280,19 @@ class SignalEngine:
     def _grindsig_message(self, sig, c, plan, prec, icon, word) -> str:
         g = self.cfg.grindsignal
         b = c.get("band") or {}
-        hist = {(h["leverage"], h["target"], h["stop"]): h for h in b.get("plans", [])}
-        top = f"top {b['top']:.0%} of grinds" if b.get("top", 1) < 1 else "all grinds"
-        lines = [f"{icon} <b>GRIND {word} {esc(sig['symbol'])}</b> · model score {c['p_model']:.2f} ({top})"
-                 + (" · PAPER" if sig["grade"] == "P" else "")]
+        from .grindsignal import STEADY_HISTORY, plan_name
+        is_steady = c.get("selector") == "steady"
+        if is_steady:
+            hist = {(pl["leverage"], pl["target"], pl["stop"]): STEADY_HISTORY.get(plan_name(pl)) for pl in g.plans}
+            top = "steady all-day grinds, past year"
+            st = c.get("steady") or {}
+            head = (f" · all-day steady grind: 24h {(st.get('r_24h') or 0) * 100:+.1f}%, "
+                    f"{(st.get('hours_with24') or 0):.0f}/24 hours its way, R² 24h {(st.get('r2_24h') or 0):.2f} / 6h {(st.get('r2_6h') or 0):.2f}")
+        else:
+            hist = {(h["leverage"], h["target"], h["stop"]): h for h in b.get("plans", [])}
+            top = f"top {b['top']:.0%} of grinds" if b.get("top", 1) < 1 else "all grinds"
+            head = f" · model score {c['p_model']:.2f} ({top})"
+        lines = [f"{icon} <b>GRIND {word} {esc(sig['symbol'])}</b>{head}" + (" · PAPER" if sig["grade"] == "P" else "")]
         if sig["grade"] == "P":
             lines.append("📝 <i>Unproven: no plan has shown an edge after fees on unseen months. Your call.</i>")
         lines += ["", f"Entry <code>{fmt_price(sig['entry'], prec)}</code> (market now) · close after {g.hours}h if no exit", ""]
@@ -296,7 +305,10 @@ class SignalEngine:
                          f"stop <code>{fmt_price(sl, prec)}</code> (−{pl['stop']:.2%}) → +{pl['gain_margin']:.1%} / "
                          f"−{pl['loss_margin']:.1%} on margin{mark}")
             h = hist.get((pl["leverage"], pl["target"], pl["stop"]))
-            if h:
+            if h and is_steady:
+                lines.append(f"     history ({top}): won {h['win']:.0%}, {h['net'] * 100:+.2f}% per trade, "
+                             f"{h['net'] * pl['leverage'] * 100:+.1f}% margin avg")
+            elif h:
                 lines.append(f"     history ({top}, unseen months): won {h['win']:.0%}, {h['net'] * 100:+.2f}% per trade, "
                              f"{h['margin'] * 100:+.1f}% margin avg")
         lines += self._level_lines(c, prec)

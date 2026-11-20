@@ -82,6 +82,7 @@ def _stats(rows: list[dict]) -> dict:
             "time": sum(1 for r in rows if r["status"] == "time")}
 
 
+STEADY_KEYS = ("r_24h", "r2_24h", "hours_with24", "r2_6h", "hours_with6", "big6")
 ANAT_FACTORS = [  # (key, label, path in the anatomy JSON)
     ("mfe", "Best move before exit", ("mfe",)),
     ("to_peak", "Minutes to the peak", ("minutes_to_peak",)),
@@ -234,6 +235,9 @@ def snapshot(db_path: Path) -> dict:
             if "outcomes" in cols_gl:
                 prog = ", progress" if "progress" in cols_gl else ", NULL AS progress"
                 prog += ", levels" if "levels" in cols_gl else ", NULL AS levels"
+                prog += ", selected" if "selected" in cols_gl else ", NULL AS selected"
+                if "all_factors" in cols_gl:            # the steady rule's inputs, for grinds recorded before it existed
+                    prog += "".join(f", json_extract(all_factors, '$.{k}') AS f_{k}" for k in STEADY_KEYS)
                 allg = q("SELECT symbol, ts, side, model_p, threshold, decision, outcomes" + prog + " FROM grind_live "
                          "WHERE ts>=? ORDER BY ts DESC LIMIT 2500", (now - 3 * DAY,))
                 for r in allg:
@@ -248,7 +252,22 @@ def snapshot(db_path: Path) -> dict:
                     if not r["plans"] and pr:                 # under 24h: plans decided so far, moves so far
                         r["progress"] = {"plans": pr.get("plans"), "best": pr.get("best"), "worst": pr.get("worst"),
                                          "as_of": pr.get("as_of")}
+                from .grindsignal import steady
+                gs = Config().grindsignal
+                for r in allg:
+                    f = {k: r.pop(f"f_{k}", None) for k in STEADY_KEYS}
+                    if r.get("selected") is None and gs.selector == "steady" and f.get("r_24h") is not None:
+                        r["selected"] = int(steady(f, gs))
+                        r["selected_retro"] = True
                 out["grind_all"] = allg
+                five = "5x +2.00% / -1.00%"
+                def rec(rows):
+                    v = [(r["plans"] or {}).get(five) if r["plans"] else ((r.get("progress") or {}).get("plans") or {}).get(five)
+                         for r in rows]
+                    v = [x for x in v if x is not None]
+                    return {"n": len(v), "won": sum(1 for x in v if x > 0), "net": (sum(v) / len(v)) if v else None}
+                out["rule_live"] = {"selected": rec([r for r in allg if r.get("selected")]),
+                                    "others": rec([r for r in allg if r.get("selected") == 0])}
                 if "anatomy" in cols_gl:
                     out["anatomy"] = anatomy_summary(q("SELECT symbol, ts, side, anatomy FROM grind_live WHERE anatomy IS NOT NULL "
                                                        "AND ts>=? ORDER BY ts DESC LIMIT 3000", (now - 7 * DAY,)))

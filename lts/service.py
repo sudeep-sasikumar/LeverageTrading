@@ -344,7 +344,7 @@ class Service:
     def grinds_to_record(self, rows: list[dict], end: int) -> list[dict]:
         """Score every detected grind, then keep (record, and consider for sending) only:
         - a grind with no record for that coin and side in the last 55 minutes (about one record an hour), or
-        - a grind whose score has just crossed the sending threshold (it was below at its last record)."""
+        - a grind that has just started to meet the sending rule (it did not at its last record)."""
         from . import grindsignal as GS
         from .grindlab import _insert_live
         g = self.cfg.grindsignal
@@ -357,15 +357,18 @@ class Service:
             GS.score_rows(rows, pres, self.gs_bundle)
             self.gs_pmin = GS.threshold(self.gs_bundle, g.top_share)
         keep = []
+        p_min = getattr(self, "gs_pmin", None)
         for r in rows:
-            last = self.db.query("SELECT model_p, threshold FROM grind_live WHERE symbol=? AND side=? AND ts>? "
+            r["selected"] = GS.selected(r, g, p_min)
+            last = self.db.query("SELECT selected FROM grind_live WHERE symbol=? AND side=? AND ts>? "
                                  "ORDER BY ts DESC LIMIT 1", (r["symbol"], r["side"], end - 55 * 60_000))
-            p, p_min = r.get("p"), getattr(self, "gs_pmin", None)
-            crossed = (p is not None and p_min is not None and p >= p_min and last
-                       and (last[0]["model_p"] or 0) < (last[0]["threshold"] or 1))
+            crossed = r["selected"] and last and not last[0]["selected"]
             if not last or crossed:
                 keep.append(r)
         _insert_live(self.db, keep)
+        for r in keep:
+            self.db.execute("UPDATE grind_live SET selected=? WHERE symbol=? AND ts=? AND side=?",
+                            (int(r["selected"]), r["symbol"], r["ts"], r["side"]))
         self.grind_levels(keep)
         return keep
 
@@ -388,7 +391,7 @@ class Service:
                             (json.dumps(lv), r["symbol"], r["ts"], r["side"]))
 
     async def grind_signals(self, rows: list[dict], meta: dict) -> None:
-        """Send ALL recorded grinds whose model score is at or above the top-share threshold."""
+        """Send ALL recorded grinds that meet the sending rule (steady all-day grind, or the model's top share)."""
         from . import grindsignal as GS
         g = self.cfg.grindsignal
         if not g.enabled or not rows or not getattr(self, "gs_bundle", None) or "p" not in rows[0]:
@@ -397,12 +400,14 @@ class Service:
         GS.record_grinds(self.db, rows, p_min)
         picks = []
         for r in rows:
-            if r["p"] < p_min:
+            if not r.get("selected"):
                 continue
             m = meta.get(r["symbol"], {})
             picks.append({"symbol": r["symbol"], "side": r["side"], "ts": r["ts"], "ref_price": r["price"],
                           "atr_pct": r.get("atr_1h"), "kind": "grindsig", "p_model": r["p"], "band": r["band"],
-                          "p_min": p_min, "levels": r.get("levels"),
+                          "p_min": p_min if g.selector != "steady" else -1.0, "selector": g.selector,
+                          "steady": {k: r.get(k) for k in ("r_24h", "r2_24h", "hours_with24", "r2_6h", "hours_with6", "big6")},
+                          "levels": r.get("levels"),
                           "on_weex": bool(m.get("on_weex")), "src": "binance", "price_precision": m.get("price_precision"),
                           "features": {k: r.get(k) for k in ("r_6h", "r_24h", "sh_r2_6h") if r.get(k) is not None}})
         for p in picks:
@@ -417,10 +422,10 @@ class Service:
             await self.engine.decide(picks, None, int(time.time() * 1000))
         decided = {(p["symbol"], p["side"]): p.get("decision") for p in picks}
         for r in rows:                                   # what happened to each grind, for the Grinders tab
-            dec = decided.get((r["symbol"], r["side"])) or f"below model threshold ({r['p']:.3f} < {p_min:.3f})"
+            dec = decided.get((r["symbol"], r["side"])) or GS.why_not(r, g, p_min)
             self.db.execute("UPDATE grind_live SET decision=? WHERE symbol=? AND ts=? AND side=?",
                             (dec, r["symbol"], r["ts"], r["side"]))
-        log.info("grind signals: %d early grinds scored, %d in the top %.0f%%, %d sent", len(rows), len(picks), g.top_share * 100,
+        log.info("grind signals: %d early grinds, %d met the %s rule, %d sent", len(rows), len(picks), g.selector,
                  sum(1 for p in picks if p.get("decision") == "sent"))
 
     async def daily_pick(self, rows: list[dict], meta: dict) -> None:
