@@ -145,6 +145,10 @@ button.link:hover{border-color:var(--accent)}
     Lead = minutes before the stop that the clue appeared (none = it did not appear before the stop).</p>
     <div class="panel scroll" id="anatMed"></div>
     <div class="panel scroll" id="anatRev" style="margin-top:12px"></div>
+    <h2>Early exits, live (shadow only — they never close a signal)</h2>
+    <p class="muted">Each grind's 5x plan replayed with one early-exit rule, 24h after it was detected (last 14 days). On the past
+    year every rule cut full stops but none improved the average per trade. This table shows whether live trades agree.</p>
+    <div class="panel scroll" id="exitsLive"></div>
     <h2>Grinding right now (last 48h) — traits</h2><div class="panel scroll" id="grindLive"></div>
     <h2>Grind signals: how each plan did (every signal, scored after 24h)</h2><div class="panel scroll" id="planStats"></div>
     <h2>Grind signals</h2><div class="panel scroll" id="grindTrades"></div>
@@ -327,6 +331,9 @@ function render(d) {
   table($("anatMed"), [["Factor (median)"],["Reversals","num"],["Reached target","num"],["Stopped without a run","num"]],
     an.medians.map(m => [esc(m.factor), fmtF(m.key, m.reversal), fmtF(m.key, m.target), fmtF(m.key, m.stop)]),
     "Filled in as grinds exit (needs the trade to reach its target or stop).");
+  const exCell = s => !s || !s.n ? "–" : `${s.won}/${s.n} won · ${Math.round(100 * s.full / s.n)}% full stops · ${signed(s.net * 100, 2, "%")}`;
+  table($("exitsLive"), [["Exit rule"],["All grinds (5x)"],["Steady all-day grinds (5x)"]],
+    (d.exits_live || []).map(r => [esc(r.desc), exCell(r.all), exCell(r.steady)]), "Filled in 24h after each grind.");
   const lead = v => v == null ? '<span class="muted">none</span>' : num(v, 0) + " min";
   table($("anatRev"), [["Detected"],["Coin"],["Side"],["Best","num"],["To peak","num"],["Peak→stop","num"],["Flow run→fall"],["Volume after peak","num"],
                        ["BTC after peak","num"],["Market after peak","num"],["Liq. against","num"],["OI run / fall"],["Book at peak","num"],["Level near peak"],

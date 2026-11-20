@@ -905,3 +905,40 @@ still applies). Expected about 1 call a day instead of about 30, with a higher w
 **not shown to be profitable**: the year says close to break-even. Every grind keeps being recorded
 with whether it met the rule (`grind_live.selected`); the dashboard applies the rule to grinds
 recorded before it existed and shows the rule's live 5x record next to the other grinds.
+
+## 26. Spotting a winner turning into a loser, and exiting early (20 Nov 2026)
+
+**Live check of section 25's rule** (applied to the ~2,100 grinds recorded since 17 Nov): 15
+coin-days met the steady rule; 2 would have won at 5x (14%), against 33% for the other grinds. Too
+few (and 13 of 15 were shorts in one market swing) to confirm or reject the year's 38%, but not
+encouraging. It stays on watch on the dashboard.
+
+**Early-exit rules**, written down before testing, on top of the 5x +2% / −1% plan (decided on a 5m
+close, exit at that close with taker fee and slippage). Price only, on all 63,528 grinds; first 7 /
+last 7 months:
+
+| Exit rule | All grinds | Old rule (model top 20%) | New rule (all-day steady) |
+|---|---|---|---|
+| None | −0.22% / −0.26% (66% / 68% full stops) | −0.19% / −0.22% | −0.13% / −0.04% |
+| Stop to entry after +0.5% | −0.24% / −0.24% | −0.21% / −0.21% | −0.15% / −0.13% |
+| Close back at entry after +0.5% | −0.24% / −0.26% (39% / 40% full) | −0.22% / −0.23% | −0.13% / −0.07% |
+| Close through EMA20 after +1% | −0.22% / −0.26% | −0.21% / −0.23% | −0.16% / −0.01% |
+| Close through the run's swing low | −0.22% / −0.27% | −0.20% / −0.23% | −0.15% / −0.02% |
+| 60% wick against after +0.5% | −0.24% / −0.26% | −0.22% / −0.24% | −0.17% / −0.06% |
+| Give back 0.75% after +1% | −0.23% / −0.26% | −0.22% / −0.23% | −0.23% / −0.09% |
+| Stop to +0.5% after +1.5% | −0.22% / −0.25% | −0.21% / −0.22% | −0.16% / −0.02% |
+| Out after 30 min unless +0.5% | −0.22% / −0.27% | −0.22% / −0.23% | −0.19% / −0.11% |
+
+Taker flow and volume (Binance candles with taker-buy volume, fetched for every steady grind and
+4,000 random grinds): 15-min flow against + lower close; EMA20 break with flow against; volume
+spike against; flow flipping from with to against. Same picture: full stops fall (65% → 45–57%),
+the result per trade does not improve in both halves for either group.
+
+**Why:** a grind that gives back its gains looks the same, at the moment it turns, as one that dips
+and then goes on to the target. Exiting early closes both. With a +2% / −1% plan the early exits
+turn one −1% loss into several smaller losses plus fees, and cut winners.
+
+**Done:** no early exit is applied. Every recorded grind gets the 5x plan replayed under each rule,
+24h after detection (`lts/exits.py`, `grind_live.exits`), and the Grinders tab shows the live
+record per rule for all grinds and for steady grinds. If live trades disagree with the year, it
+will show there.

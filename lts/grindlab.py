@@ -752,6 +752,7 @@ CREATE TABLE IF NOT EXISTS grind_live (
     levels TEXT,                       -- daily/weekly/monthly levels between entry and target / stop (JSON)
     anatomy TEXT,                      -- tracked plan: entry -> peak -> exit, what changed at the turn (lts/reversal.py)
     selected INTEGER,                  -- met the sending rule at this record (steady all-day grind, or model top share)
+    exits TEXT,                        -- tracked plan under each shadow early-exit rule (lts/exits.py)
     PRIMARY KEY (symbol, ts, side)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS grind_episodes (
@@ -770,7 +771,7 @@ def ensure_live_schema(db: DB) -> None:
     for col, typ in (("all_factors", "TEXT"), ("micro", "TEXT"), ("threshold", "REAL"), ("outcomes", "TEXT"),
                      ("outcome_ts", "INTEGER"), ("progress", "TEXT"),
                      ("after_exit", "TEXT"), ("levels", "TEXT"), ("anatomy", "TEXT"),
-                     ("selected", "INTEGER")):
+                     ("selected", "INTEGER"), ("exits", "TEXT")):
         if col not in have:
             db.conn.execute(f"ALTER TABLE grind_live ADD COLUMN {col} {typ}")
     db.conn.commit()

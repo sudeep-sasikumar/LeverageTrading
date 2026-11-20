@@ -345,6 +345,36 @@ def label_anatomy(cfg, db: DB, now: int | None = None, max_rows: int = 400) -> i
     return n
 
 
+def label_exits(cfg, db: DB, now: int | None = None, max_rows: int = 600) -> int:
+    """24h after each recorded grind: the tracked plan under every shadow early-exit rule (lts/exits.py)."""
+    import json
+    from .exits import shadow
+    from .grindlab import ensure_live_schema
+    ensure_live_schema(db)
+    gs = cfg.grindsignal
+    pl = gs.plans[gs.primary]
+    now = now or int(time.time() * 1000)
+    rows = db.query("SELECT symbol, ts, side FROM grind_live WHERE exits IS NULL AND ts <= ? AND ts > ? ORDER BY ts LIMIT ?",
+                    (now - gs.hours * HOUR - 10 * 60_000, now - 5 * DAY, max_rows))
+    n = 0
+    for r in rows:
+        ts = int(r["ts"])
+        k = db.frame("SELECT ts,o,h,l,c,qv,tbqv FROM klines WHERE symbol=? AND ts>=? AND ts<? ORDER BY ts",
+                     [r["symbol"], ts - BARS * BAR, ts + gs.hours * HOUR])
+        if not len(k):
+            continue
+        pre = k[k.ts < ts]["c"].to_numpy(float)
+        post = np.full((gs.hours * 12, 6), np.nan)
+        kp = k[k.ts >= ts]
+        idx = ((kp["ts"].to_numpy() - ts) // BAR).astype(int)
+        post[idx] = kp[["o", "h", "l", "c", "qv", "tbqv"]].to_numpy(float)
+        res = shadow(post, pre, r["side"], pl["target"], pl["stop"], gs.hours)
+        db.execute("UPDATE grind_live SET exits=? WHERE symbol=? AND ts=? AND side=?",
+                   (json.dumps(_clean(res)) if res else '{"missing": true}', r["symbol"], r["ts"], r["side"]))
+        n += 1
+    return n
+
+
 def label_after_exit(cfg, db: DB, now: int | None = None) -> int:
     """Every recorded grind, (hours + after_hours) after detection: each plan's exit and the 24h that followed."""
     import json

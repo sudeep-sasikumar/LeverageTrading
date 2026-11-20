@@ -112,6 +112,35 @@ def _dig(o, path):
     return o if isinstance(o, (int, float)) and not isinstance(o, bool) else None
 
 
+def exits_summary(rows: list[dict]) -> list[dict]:
+    """Per shadow exit rule: the tracked plan's live record, for steady-rule grinds and for all grinds."""
+    from .exits import ENTRY, MKT, RULES
+    from .grindsignal import steady
+    gs = Config().grindsignal
+    full = -gs.plans[gs.primary]["stop"] - ENTRY - MKT + 1e-9
+    acc = {r: {"all": [], "steady": []} for r in RULES}
+    for r in rows:
+        e = json.loads(r["exits"] or "null") or {}
+        if not e or e.get("missing"):
+            continue
+        f = {k: r.get(f"f_{k}") for k in STEADY_KEYS}
+        is_steady = bool(r.get("sel")) if gs.selector != "steady" else (bool(r.get("sel")) or steady(f, gs))
+        for rule, v in e.items():
+            if rule in acc:
+                acc[rule]["all"].append(v["net"])
+                if is_steady:
+                    acc[rule]["steady"].append(v["net"])
+    out = []
+    for rule, desc in RULES.items():
+        row = {"rule": rule, "desc": desc}
+        for g in ("all", "steady"):
+            v = acc[rule][g]
+            row[g] = {"n": len(v), "won": sum(1 for x in v if x > 0), "full": sum(1 for x in v if x <= full),
+                      "net": (sum(v) / len(v)) if v else None}
+        out.append(row)
+    return out
+
+
 def anatomy_summary(rows: list[dict]) -> dict:
     """Reversals (in profit, then stopped) vs trades that reached the target vs other stops: medians of each factor,
     and the list of recent reversals with their main clues."""
@@ -268,6 +297,11 @@ def snapshot(db_path: Path) -> dict:
                     return {"n": len(v), "won": sum(1 for x in v if x > 0), "net": (sum(v) / len(v)) if v else None}
                 out["rule_live"] = {"selected": rec([r for r in allg if r.get("selected")]),
                                     "others": rec([r for r in allg if r.get("selected") == 0])}
+                if "exits" in cols_gl:
+                    out["exits_live"] = exits_summary(q(
+                        "SELECT exits, COALESCE(selected, 0) AS sel" +
+                        ("".join(f", json_extract(all_factors, '$.{k}') AS f_{k}" for k in STEADY_KEYS) if "all_factors" in cols_gl else "") +
+                        " FROM grind_live WHERE exits IS NOT NULL AND ts>=?", (now - 14 * DAY,)))
                 if "anatomy" in cols_gl:
                     out["anatomy"] = anatomy_summary(q("SELECT symbol, ts, side, anatomy FROM grind_live WHERE anatomy IS NOT NULL "
                                                        "AND ts>=? ORDER BY ts DESC LIMIT 3000", (now - 7 * DAY,)))
