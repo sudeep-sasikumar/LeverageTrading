@@ -190,6 +190,7 @@ def snapshot(db_path: Path) -> dict:
         out["phase"] = kv.get("phase", "unknown")
         out["paused"] = bool(kv.get("paused", False))
         out["heartbeat"] = kv.get("heartbeat")
+        out["grind_heartbeat"] = kv.get("grind_heartbeat")       # grind scan timing (every 5 minutes)
         err = kv.get("last_error")
         hb_ts = (out["heartbeat"] or {}).get("ts", 0)
         out["error"] = err if err and err.get("ts", 0) > hb_ts else None     # cleared by the next good scan

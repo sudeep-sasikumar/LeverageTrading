@@ -265,7 +265,8 @@ class Service:
                 if last_train_day != day and (now.hour, now.minute) >= (lc.retrain_utc_hour, lc.retrain_utc_minute):
                     last_train_day = day
                     self.db.set("last_train_day", day)
-                    await self.retrain()
+                    if scheduled(lc.retrain_schedule, now):
+                        await self.retrain()
                     self.db.prune(self.cfg.storage.keep_klines_days)
                     if self.cfg.micro.enabled:
                         from .microstructure import prune as micro_prune
@@ -274,7 +275,7 @@ class Service:
                 if gl.enabled and self.db.get("last_grindlab_day") != day and \
                         (now.hour, now.minute) >= (gl.nightly_utc_hour, gl.nightly_utc_minute):
                     self.db.set("last_grindlab_day", day)
-                    await self.grind_nightly()
+                    await self.grind_nightly(study=scheduled(gl.study_schedule, now))
                 if last_report_day != day and (now.hour, now.minute) >= (tc.report_utc_hour, tc.report_utc_minute):
                     last_report_day = day
                     self.db.set("last_report_day", day)
@@ -365,6 +366,8 @@ class Service:
                 self.db.execute("UPDATE grind_live SET decision=? WHERE symbol=? AND ts=? AND side=?",
                                 (c.get("decision") or "skipped:below_score", c["symbol"], c["ts"], c["side"]))
         await self.grind_signals(rows, meta)
+        self.db.set("grind_heartbeat", {"ts": int(time.time() * 1000), "end": end, "grind_s": round(time.time() - t0, 1),
+                                        "recorded": len(rows)})
 
         def progress():
             from .grindsignal import progress_grinds
@@ -518,16 +521,21 @@ class Service:
             log.info("daily trade: %d candidates cleared the threshold, decisions %s", len(picks),
                      [p.get("decision") for p in picks])
 
-    async def grind_nightly(self) -> None:
+    async def grind_nightly(self, study: bool = True) -> None:
+        """Nightly: refresh the hourly/daily history, funding and announcements (always), and - when scheduled
+        (grindlab.study_schedule) - rebuild the grind-lab study and retrain the grind model."""
         from . import grindlab
 
         def work():
             own = DB(self.cfg.path(self.cfg.storage.db_path))
             try:
-                return grindlab.nightly(self.cfg, own)
+                return grindlab.nightly(self.cfg, own, study=study)
             finally:
                 own.close()
         rep = await asyncio.to_thread(work)
+        if not study:
+            log.info("grind lab: data refreshed; study skipped (schedule %s)", self.cfg.grindlab.study_schedule)
+            return
         await self.tg.send(grindlab.nightly_text(rep))
 
         def retrain_signals():

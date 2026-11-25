@@ -382,6 +382,7 @@ function render(d) {
     item("Last price bar stored", dd.last_bar_ts ? `${ago(dd.last_bar_ts + 300000)} (${dt(dd.last_bar_ts)})` : "–"),
     item("History starts", dt(dd.first_bar_ts)), item("Coins tracked", dd.symbols ?? "–"),
     item("Last scan", hb ? `${hb.candidates} candidates, ${hb.signals} signals, collect ${num(hb.collect_s, 1)}s + scan ${num(hb.scan_s, 1)}s` : "–"),
+    item("Scan timings", hb ? `collect ${num(hb.collect_s, 1)}s · momentum scan ${num(hb.scan_s, 1)}s · grind scan ${d.grind_heartbeat ? num(d.grind_heartbeat.grind_s, 1) + "s" : "–"}` : "–"),
     item("Collection errors (last cycle)", hb ? hb.errors : "–"), item("Telegram", hb ? (hb.telegram ? "configured" : '<span class="neg">not configured</span>') : "–"),
     item("Candidates stored", (dd.candidates ?? 0).toLocaleString() + ` (${(dd.live_candidates ?? 0).toLocaleString()} live)`),
     item("Liquidations recorded (24h)", d.micro ? `${(d.micro.liq_24h || 0).toLocaleString()} ($${((d.micro.liq_usd_24h || 0) / 1e6).toFixed(1)}M), last ${ago(d.micro.liq_last)}` : "not started"),

@@ -90,6 +90,9 @@ class GrindLab:
     days: float = 120.0                  # history studied (hourly bars)
     nightly_utc_hour: int = 1
     nightly_utc_minute: int = 10
+    # The nightly study + model refit (it never sends signals; CPU on a 1 vCPU VPS). "daily", "weekly" (Mondays)
+    # or "off". The data refresh it carries (hourly/daily candles, funding, announcements) runs every night anyway.
+    study_schedule: str = "weekly"
     min_score: int = 8                   # checklist traits (of 12) needed for a paper trade
     paper_trades: bool = False           # superseded by grindsignal (the scored signals)
     stop: float = 0.03                   # paper-trade plan = the study's success definition
@@ -203,6 +206,9 @@ class Signal:
 class Learn:
     retrain_utc_hour: int = 0
     retrain_utc_minute: int = 40
+    # The momentum model is logged only (signal.momentum_send = False), so its retrain can run "daily", "weekly"
+    # (Mondays) or "off". Candidates keep being collected and labelled either way.
+    retrain_schedule: str = "weekly"
     min_samples: int = 1500
     n_folds: int = 5
     holdout_days: float = 5.0

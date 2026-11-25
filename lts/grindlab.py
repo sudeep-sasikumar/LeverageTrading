@@ -805,13 +805,16 @@ def _clean(o):
     return o
 
 
-def nightly(cfg, db: DB) -> dict:
-    """Refresh history, rebuild the study, refit the model, store the report. Run in a worker thread."""
+def nightly(cfg, db: DB, study: bool = True) -> dict:
+    """Refresh history (always), then - if `study` - rebuild the study, refit the model, store the report.
+    Run in a worker thread."""
     import asyncio
     import joblib
     from .grindlab_data import refresh
     db.conn.executescript(LIVE_SCHEMA)
     asyncio.run(refresh(db, hourly_days=cfg.grindlab.days + 5, funding_days=cfg.grindlab.days + 5))
+    if not study:
+        return {"built_ts": int(time.time() * 1000), "refresh_only": True}
     df, ep = build(db, days=cfg.grindlab.days)
     if len(df) < 500:
         rep = {"built_ts": int(time.time() * 1000), "n_decisions": int(len(df)), "insufficient": True}
@@ -881,6 +884,16 @@ class FiveMinuteScanner:
 
     def __init__(self, cfg):
         self.cfg, self.ctx, self.ctx_hour, self.refreshed_hour = cfg, None, None, None
+        self._bundle, self._bundle_mtime = None, None
+
+    def bundle(self) -> dict | None:
+        """The grind-lab bundle, loaded once and reloaded only when the nightly study rewrites the file."""
+        from pathlib import Path
+        p = Path(bundle_path(self.cfg))
+        m = p.stat().st_mtime if p.exists() else None
+        if m != self._bundle_mtime:
+            self._bundle, self._bundle_mtime = (load_bundle(self.cfg) if m is not None else None), m
+        return self._bundle
 
     def scan(self, db: DB, end: int) -> list[dict]:
         import asyncio
@@ -893,4 +906,4 @@ class FiveMinuteScanner:
             self.refreshed_hour, self.ctx = hour, None
         if self.ctx is None or self.ctx_hour != hour:
             self.ctx, self.ctx_hour = load_context(db, end - 40 * DAY), hour
-        return score_live(scan_now(db, self.ctx, end), load_bundle(self.cfg))
+        return score_live(scan_now(db, self.ctx, end), self.bundle())
