@@ -1,0 +1,79 @@
+B1 breakouts - run 2026-11-25 21:39 UTC; costs from config: taker 0.0800%, maker 0.0200%, slippage 0.0400%
+  break-even win rate +10% / -5%: 34.8% (taker TP), 34.7% (maker TP)
+  break-even win rate +15% / -5%: 26.1% (taker TP), 26.1% (maker TP)
+  break-even win rate +20% / -5%: 20.9% (taker TP), 20.9% (maker TP)
+  break-even win rate +2% / -1%: 40.8% (taker TP), 40.0% (maker TP)
+(trades re-used from research_data/b1_trades.parquet, simulated by this script on 25 Nov 2026)
+1,694,322 trade rows (96,678 distinct breakouts)
+
+Discovery (entries before 01 Jun 2026): 576 variants; passed the bar: 0
+Frozen for confirmation (10: every pass + the discovery top 10 by corrected t, then raw t): docs/results/b1v2_frozen.json (b1_frozen.json: the first freeze, see the correction note in the script)
+
+1h 7d vol2x short struct 4R 168h   discovery corrected t n/a (Holm-adjusted p = 1)  did not pass: mean +0.032 < +0.1; corrected t -inf < 3.0; months positive 29% < 60%
+  discovery                  n  1619 won 25.4% (b/e 22.4%) +0.032R = -0.12% (5x margin -0.6%) t +1.0 m+ 29% 7.73/day maxDD -225.1R | maker TP +0.040R | vs control -0.361R t -2.9
+  confirmation               n  1079 won 19.6% (b/e 22.7%) -0.267R = -0.78% (5x margin -3.9%) t -1.9 m+ 17% 6.70/day maxDD -353.0R | maker TP -0.261R | vs control -0.681R t -4.2
+  regime + (alts above 50d)  n   242 won 26.9% (b/e 22.7%) +0.008R = -0.18% (5x margin -0.9%) t -2.7 m+ 60% 1.40/day maxDD -72.9R | maker TP +0.017R | vs control -0.356R t -3.1
+  regime - (alts below 50d)  n  2456 won 22.7% (b/e 22.5%) -0.097R = -0.40% (5x margin -2.0%) t +0.3 m+ 23% 6.62/day maxDD -447.8R | maker TP -0.090R | vs control -0.502R t -4.2
+
+1h 7d vol2x short struct 4R 72h   discovery corrected t n/a (Holm-adjusted p = 1)  did not pass: mean +0.073 < +0.1; corrected t -inf < 3.0; months positive 43% < 60%
+  discovery                  n  1619 won 30.8% (b/e 22.4%) +0.073R = +0.18% (5x margin +0.9%) t +1.0 m+ 43% 7.73/day maxDD -144.0R | maker TP +0.080R | vs control -0.333R t -2.4
+  confirmation               n  1079 won 20.6% (b/e 22.7%) -0.299R = -0.93% (5x margin -4.6%) t -1.8 m+ 17% 6.70/day maxDD -387.6R | maker TP -0.294R | vs control -0.624R t -4.0
+  regime + (alts above 50d)  n   242 won 31.0% (b/e 22.7%) +0.057R = +0.05% (5x margin +0.2%) t -2.9 m+ 60% 1.40/day maxDD -58.8R | maker TP +0.064R | vs control -0.234R t -3.1
+  regime - (alts below 50d)  n  2456 won 26.3% (b/e 22.5%) -0.089R = -0.30% (5x margin -1.5%) t +0.4 m+ 31% 6.62/day maxDD -479.0R | maker TP -0.083R | vs control -0.471R t -3.7
+
+4h 20d vol2x short fixed5 4R 168h   discovery corrected t n/a (Holm-adjusted p = 1)  did not pass: mean +0.015 < +0.1; corrected t -inf < 3.0; months positive 29% < 60%
+  discovery                  n   869 won 28.0% (b/e 20.9%) +0.015R = +0.08% (5x margin +0.4%) t +1.0 m+ 29% 4.15/day maxDD -195.0R | maker TP +0.017R | vs control -0.828R t -4.3
+  confirmation               n   583 won 34.3% (b/e 20.9%) +0.115R = +0.57% (5x margin +2.9%) t +0.2 m+ 50% 3.62/day maxDD -107.8R | maker TP +0.116R | vs control -0.808R t -5.6
+  regime + (alts above 50d)  n    72 won 38.9% (b/e 20.9%) +0.173R = +0.86% (5x margin +4.3%) t -0.1 m+ 75% 0.47/day maxDD -13.9R | maker TP +0.174R | vs control -0.855R t -2.9
+  regime - (alts below 50d)  n  1380 won 30.1% (b/e 20.9%) +0.049R = +0.25% (5x margin +1.2%) t +0.9 m+ 38% 3.72/day maxDD -194.0R | maker TP +0.051R | vs control -0.818R t -6.2
+
+1h 7d vol2x short struct 3R 168h   discovery corrected t n/a (Holm-adjusted p = 1)  did not pass: mean +0.030 < +0.1; corrected t -inf < 3.0; months positive 29% < 60%
+  discovery                  n  1619 won 30.2% (b/e 28.0%) +0.030R = +0.08% (5x margin +0.4%) t +0.9 m+ 29% 7.73/day maxDD -195.3R | maker TP +0.039R | vs control -0.292R t -2.5
+  confirmation               n  1079 won 21.7% (b/e 28.3%) -0.315R = -0.89% (5x margin -4.5%) t -2.5 m+ 17% 6.70/day maxDD -395.5R | maker TP -0.308R | vs control -0.639R t -4.2
+  regime + (alts above 50d)  n   242 won 28.5% (b/e 28.3%) -0.073R = -0.34% (5x margin -1.7%) t -2.5 m+ 60% 1.40/day maxDD -66.7R | maker TP -0.064R | vs control -0.310R t -2.5
+  regime - (alts below 50d)  n  2456 won 26.6% (b/e 28.1%) -0.112R = -0.30% (5x margin -1.5%) t -0.2 m+ 23% 6.62/day maxDD -469.4R | maker TP -0.104R | vs control -0.442R t -4.1
+
+1h 7d vol2x short struct 3R 72h   discovery corrected t n/a (Holm-adjusted p = 1)  did not pass: mean +0.068 < +0.1; corrected t -inf < 3.0; months positive 57% < 60%
+  discovery                  n  1619 won 34.2% (b/e 28.0%) +0.068R = +0.34% (5x margin +1.7%) t +0.9 m+ 57% 7.73/day maxDD -139.2R | maker TP +0.076R | vs control -0.266R t -2.3
+  confirmation               n  1079 won 22.0% (b/e 28.3%) -0.347R = -1.01% (5x margin -5.1%) t -2.5 m+ 17% 6.70/day maxDD -429.7R | maker TP -0.341R | vs control -0.616R t -4.3
+  regime + (alts above 50d)  n   242 won 32.2% (b/e 28.3%) -0.044R = -0.18% (5x margin -0.9%) t -2.5 m+ 80% 1.40/day maxDD -67.0R | maker TP -0.035R | vs control -0.243R t -2.5
+  regime - (alts below 50d)  n  2456 won 29.0% (b/e 28.1%) -0.104R = -0.21% (5x margin -1.0%) t -0.3 m+ 31% 6.62/day maxDD -498.6R | maker TP -0.096R | vs control -0.422R t -4.0
+
+4h 3d vol2x short fixed5 3R 168h   discovery corrected t n/a (Holm-adjusted p = 1)  did not pass: mean -0.002 < +0.1; corrected t -inf < 3.0; months positive 43% < 60%
+  discovery                  n   971 won 31.8% (b/e 26.1%) -0.002R = -0.01% (5x margin -0.1%) t +0.8 m+ 43% 4.63/day maxDD -161.4R | maker TP +0.000R | vs control -0.407R t -2.8
+  confirmation               n   705 won 33.2% (b/e 26.1%) +0.003R = +0.01% (5x margin +0.1%) t -0.1 m+ 33% 4.37/day maxDD -123.8R | maker TP +0.005R | vs control -0.476R t -1.8
+  regime + (alts above 50d)  n   192 won 37.0% (b/e 26.1%) -0.005R = -0.03% (5x margin -0.1%) t +0.5 m+ 40% 1.12/day maxDD -32.8R | maker TP -0.003R | vs control -0.456R t -1.0
+  regime - (alts below 50d)  n  1484 won 31.8% (b/e 26.1%) +0.001R = +0.00% (5x margin +0.0%) t +0.4 m+ 38% 3.99/day maxDD -159.4R | maker TP +0.003R | vs control -0.434R t -3.1
+
+4h 20d vol2x short struct 2R 72h   discovery corrected t n/a (Holm-adjusted p = 1)  did not pass: mean +0.057 < +0.1; corrected t -inf < 3.0; months positive 57% < 60%
+  discovery                  n   813 won 41.2% (b/e 36.1%) +0.057R = +0.33% (5x margin +1.6%) t +0.8 m+ 57% 3.88/day maxDD -127.5R | maker TP +0.065R | vs control -0.349R t -2.6
+  confirmation               n   533 won 31.0% (b/e 36.4%) -0.262R = -0.69% (5x margin -3.5%) t -1.3 m+ 33% 3.31/day maxDD -189.6R | maker TP -0.256R | vs control -0.787R t -4.1
+  regime + (alts above 50d)  n    61 won 36.1% (b/e 36.4%) -0.236R = -0.12% (5x margin -0.6%) t -2.6 m+ 25% 0.40/day maxDD -14.8R | maker TP -0.232R | vs control -0.872R t -4.7
+  regime - (alts below 50d)  n  1285 won 37.2% (b/e 36.2%) -0.061R = -0.08% (5x margin -0.4%) t +0.4 m+ 54% 3.46/day maxDD -177.2R | maker TP -0.054R | vs control -0.506R t -3.6
+
+1h 24h vol2x short fixed5 4R 168h   discovery corrected t n/a (Holm-adjusted p = 1)  did not pass: mean +0.080 < +0.1; corrected t -inf < 3.0; months positive 57% < 60%
+  discovery                  n  1425 won 33.5% (b/e 20.9%) +0.080R = +0.40% (5x margin +2.0%) t +0.7 m+ 57% 6.80/day maxDD -169.2R | maker TP +0.081R | vs control +0.171R t +2.8
+  confirmation               n  1082 won 30.7% (b/e 20.9%) -0.085R = -0.42% (5x margin -2.1%) t +0.1 m+ 17% 6.71/day maxDD -191.4R | maker TP -0.084R | vs control +0.050R t +2.2
+  regime + (alts above 50d)  n   530 won 28.1% (b/e 20.9%) -0.144R = -0.72% (5x margin -3.6%) t +0.8 m+ 20% 3.08/day maxDD -153.1R | maker TP -0.143R | vs control +0.072R t +2.2
+  regime - (alts below 50d)  n  1977 won 33.4% (b/e 20.9%) +0.050R = +0.25% (5x margin +1.2%) t +0.4 m+ 46% 5.33/day maxDD -161.4R | maker TP +0.051R | vs control +0.131R t +3.1
+
+4h 3d vol2x short fixed5 4R 168h   discovery corrected t n/a (Holm-adjusted p = 1)  did not pass: mean -0.046 < +0.1; corrected t -inf < 3.0; months positive 29% < 60%
+  discovery                  n   971 won 28.6% (b/e 20.9%) -0.046R = -0.23% (5x margin -1.2%) t +0.7 m+ 29% 4.63/day maxDD -168.2R | maker TP -0.045R | vs control -0.468R t -2.9
+  confirmation               n   705 won 32.1% (b/e 20.9%) +0.024R = +0.12% (5x margin +0.6%) t -0.4 m+ 33% 4.37/day maxDD -135.1R | maker TP +0.026R | vs control -0.493R t -2.4
+  regime + (alts above 50d)  n   192 won 34.9% (b/e 20.9%) -0.065R = -0.33% (5x margin -1.6%) t -0.4 m+ 40% 1.12/day maxDD -42.7R | maker TP -0.065R | vs control -0.487R t -2.1
+  regime - (alts below 50d)  n  1484 won 29.4% (b/e 20.9%) -0.010R = -0.05% (5x margin -0.3%) t +0.4 m+ 31% 3.99/day maxDD -167.3R | maker TP -0.009R | vs control -0.478R t -3.3
+
+4h 7d vol2x short struct 4R 72h   discovery corrected t n/a (Holm-adjusted p = 1)  did not pass: mean +0.004 < +0.1; corrected t -inf < 3.0; months positive 57% < 60%
+  discovery                  n   989 won 32.3% (b/e 21.8%) +0.004R = -0.08% (5x margin -0.4%) t +0.7 m+ 57% 4.72/day maxDD -156.5R | maker TP +0.008R | vs control -0.511R t -2.4
+  confirmation               n   656 won 24.7% (b/e 21.8%) -0.304R = -1.00% (5x margin -5.0%) t -1.9 m+ 17% 4.07/day maxDD -303.3R | maker TP -0.302R | vs control -0.885R t -5.2
+  regime + (alts above 50d)  n   130 won 37.7% (b/e 21.9%) +0.084R = +0.56% (5x margin +2.8%) t -0.9 m+ 75% 0.85/day maxDD -22.6R | maker TP +0.088R | vs control -0.445R t -2.8
+  regime - (alts below 50d)  n  1515 won 28.5% (b/e 21.8%) -0.136R = -0.54% (5x margin -2.7%) t -0.4 m+ 38% 4.08/day maxDD -312.3R | maker TP -0.133R | vs control -0.678R t -4.5
+
+All 576 variants, discovery, mean R per trade after costs:
+  short fixed5  variants 144, positive  97, >= +0.10R  41, best +0.271R (t -1.0)
+  short struct  variants 144, positive  59, >= +0.10R   7, best +0.174R (t -1.2)
+  long  fixed5  variants 144, positive   0, >= +0.10R   0, best -0.025R (t -2.0)
+  long  struct  variants 144, positive   0, >= +0.10R   0, best -0.034R (t -0.2)
+Highest raw day-clustered t of any variant in discovery: +1.02 (1h 7d vol2x short struct 4R 168h); variants with t >= 2: 0
+
+verdict: 0 of 576 variants passed the discovery bar.

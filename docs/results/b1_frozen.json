@@ -1,0 +1,96 @@
+{
+ "study": "b1",
+ "hash": "e264f2e2c296fb0f",
+ "rules": {
+  "1h 20d all short fixed5 2R 24h": {
+   "tf": "1h",
+   "level": "20d",
+   "vol": "all",
+   "side": -1,
+   "stop": "fixed5",
+   "tr": 2,
+   "th": 24
+  },
+  "1h 20d vol2x short fixed5 2R 24h": {
+   "tf": "1h",
+   "level": "20d",
+   "vol": "vol2x",
+   "side": -1,
+   "stop": "fixed5",
+   "tr": 2,
+   "th": 24
+  },
+  "1h 20d all short fixed5 2R 72h": {
+   "tf": "1h",
+   "level": "20d",
+   "vol": "all",
+   "side": -1,
+   "stop": "fixed5",
+   "tr": 2,
+   "th": 72
+  },
+  "1h 20d vol2x short fixed5 2R 72h": {
+   "tf": "1h",
+   "level": "20d",
+   "vol": "vol2x",
+   "side": -1,
+   "stop": "fixed5",
+   "tr": 2,
+   "th": 72
+  },
+  "1h 20d all short fixed5 2R 168h": {
+   "tf": "1h",
+   "level": "20d",
+   "vol": "all",
+   "side": -1,
+   "stop": "fixed5",
+   "tr": 2,
+   "th": 168
+  },
+  "1h 20d vol2x short fixed5 2R 168h": {
+   "tf": "1h",
+   "level": "20d",
+   "vol": "vol2x",
+   "side": -1,
+   "stop": "fixed5",
+   "tr": 2,
+   "th": 168
+  },
+  "1h 20d all short fixed5 3R 24h": {
+   "tf": "1h",
+   "level": "20d",
+   "vol": "all",
+   "side": -1,
+   "stop": "fixed5",
+   "tr": 3,
+   "th": 24
+  },
+  "1h 20d vol2x short fixed5 3R 24h": {
+   "tf": "1h",
+   "level": "20d",
+   "vol": "vol2x",
+   "side": -1,
+   "stop": "fixed5",
+   "tr": 3,
+   "th": 24
+  },
+  "1h 20d all short fixed5 3R 72h": {
+   "tf": "1h",
+   "level": "20d",
+   "vol": "all",
+   "side": -1,
+   "stop": "fixed5",
+   "tr": 3,
+   "th": 72
+  },
+  "1h 20d vol2x short fixed5 3R 72h": {
+   "tf": "1h",
+   "level": "20d",
+   "vol": "vol2x",
+   "side": -1,
+   "stop": "fixed5",
+   "tr": 3,
+   "th": 72
+  }
+ }
+}

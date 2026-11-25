@@ -1,0 +1,96 @@
+{
+ "study": "b1v2",
+ "hash": "1a09200790ce145b",
+ "rules": {
+  "1h 7d vol2x short struct 4R 168h": {
+   "tf": "1h",
+   "level": "7d",
+   "vol": "vol2x",
+   "side": -1,
+   "stop": "struct",
+   "tr": 4,
+   "th": 168
+  },
+  "1h 7d vol2x short struct 4R 72h": {
+   "tf": "1h",
+   "level": "7d",
+   "vol": "vol2x",
+   "side": -1,
+   "stop": "struct",
+   "tr": 4,
+   "th": 72
+  },
+  "4h 20d vol2x short fixed5 4R 168h": {
+   "tf": "4h",
+   "level": "20d",
+   "vol": "vol2x",
+   "side": -1,
+   "stop": "fixed5",
+   "tr": 4,
+   "th": 168
+  },
+  "1h 7d vol2x short struct 3R 168h": {
+   "tf": "1h",
+   "level": "7d",
+   "vol": "vol2x",
+   "side": -1,
+   "stop": "struct",
+   "tr": 3,
+   "th": 168
+  },
+  "1h 7d vol2x short struct 3R 72h": {
+   "tf": "1h",
+   "level": "7d",
+   "vol": "vol2x",
+   "side": -1,
+   "stop": "struct",
+   "tr": 3,
+   "th": 72
+  },
+  "4h 3d vol2x short fixed5 3R 168h": {
+   "tf": "4h",
+   "level": "3d",
+   "vol": "vol2x",
+   "side": -1,
+   "stop": "fixed5",
+   "tr": 3,
+   "th": 168
+  },
+  "4h 20d vol2x short struct 2R 72h": {
+   "tf": "4h",
+   "level": "20d",
+   "vol": "vol2x",
+   "side": -1,
+   "stop": "struct",
+   "tr": 2,
+   "th": 72
+  },
+  "1h 24h vol2x short fixed5 4R 168h": {
+   "tf": "1h",
+   "level": "24h",
+   "vol": "vol2x",
+   "side": -1,
+   "stop": "fixed5",
+   "tr": 4,
+   "th": 168
+  },
+  "4h 3d vol2x short fixed5 4R 168h": {
+   "tf": "4h",
+   "level": "3d",
+   "vol": "vol2x",
+   "side": -1,
+   "stop": "fixed5",
+   "tr": 4,
+   "th": 168
+  },
+  "4h 7d vol2x short struct 4R 72h": {
+   "tf": "4h",
+   "level": "7d",
+   "vol": "vol2x",
+   "side": -1,
+   "stop": "struct",
+   "tr": 4,
+   "th": 72
+  }
+ }
+}
