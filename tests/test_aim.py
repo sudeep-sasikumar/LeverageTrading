@@ -1,6 +1,8 @@
 import asyncio
 
 import numpy as np
+
+from lts.fees import fees
 import pytest
 
 from lts import aim as A
@@ -52,10 +54,25 @@ def test_outcomes_on_5m_paths_stop_first_and_fees():
     up[1, 5, 2] = 98.9                                             # -1.1% low first -> stop
     up[2, 7, 1], up[2, 7, 2] = 101.5, 98.5                         # both in one bar -> counted as stop
     out = A.outcomes(up, np.array([1, 1, 1]))
-    net, xbar = out[(0.01, 0.01, 24)]
-    assert net[0] == pytest.approx(0.01 - A.ENTRY_COST - A.TAKER) and xbar[0] == 10
-    assert net[1] == pytest.approx(-0.01 - A.ENTRY_COST - A.TAKER - A.SLIP)
+    net, xbar, kind = out[(0.01, 0.01, 24)]
+    f = fees()
+    assert net[0] == pytest.approx(0.01 - f.entry - f.target) and xbar[0] == 10
+    assert net[1] == pytest.approx(-0.01 - f.entry - f.stop)
     assert net[2] == pytest.approx(net[1])
+    assert list(kind) == [A.TARGET, A.STOP, A.STOP]
+
+
+def test_outcomes_takes_its_grid_as_arguments_and_labels_time_exits():
+    """No module globals are changed (thread-safe), and a time exit on a wide target is labelled 'time' even when
+    its net is within 0.3% of the target (the old guess `net >= target - 0.003` called it a target)."""
+    bars = 289
+    p = np.full((1, bars, 4), 100.0, dtype=np.float32)
+    p[0, 200:, 1] = p[0, 200:, 3] = 104.8                          # +4.8% for the last hours, never touches +5%
+    before = (A.TARGETS, A.STOPS, A.HOURS)
+    o = A.outcomes(p, np.array([1]), targets=(0.05,), stops=(0.0075,), hours=(24,))[(0.05, 0.0075, 24)]
+    assert (A.TARGETS, A.STOPS, A.HOURS) == before
+    assert int(o.kind[0]) == A.TIME and A.EXIT_NAMES[int(o.kind[0])] == "time"
+    assert o.net[0] == pytest.approx(0.048 - fees().entry - fees().time)
 
 
 def test_daily_policy_takes_first_qualifying_and_waits_for_exit():

@@ -5,15 +5,14 @@ result per trade, because the early exits also closed trades that went on to the
 many small losses. They are recorded live, per grind, so that verdict can be re-checked on live trades.
 
 Plan: target and stop checked inside each 5-minute candle first (stop first). Rules decide on a candle's close
-and exit at that close (taker fee + slippage). Taker flow = (2 x taker-buy volume / volume - 1) x side.
+and exit at that close (taker fee + slippage, from config.trade via lts.fees). Taker flow = (2 x taker-buy volume / volume - 1) x side.
 """
 from __future__ import annotations
 
 import numpy as np
 
-ENTRY = 0.0008 + 0.0004          # taker + slippage in
-MKT = 0.0008 + 0.0004            # market exit
-TGT = 0.0008                     # Weex TP fills as taker
+from .fees import Fees, fees
+
 RULES = {
     "none": "no early exit (target or stop or 24h)",
     "back_0.5": "after +0.5%, close back at entry",
@@ -26,12 +25,15 @@ RULES = {
 }
 
 
-def shadow(post: np.ndarray, pre_close: np.ndarray, side: int, target: float, stop: float, hours: int = 24) -> dict:
+def shadow(post: np.ndarray, pre_close: np.ndarray, side: int, target: float, stop: float, hours: int = 24,
+           fee: Fees | None = None) -> dict:
     """post: (bars, 6) o,h,l,c,qv,tbqv from entry; pre_close: closes before entry (EMA seed).
     Returns {rule: {"net": ..., "exit": "target|stop|rule|time", "min": minutes}} or {} if data is missing."""
     B = min(hours * 12, len(post))
     if B < hours * 12 * 0.98 or not np.isfinite(post[0, 0]):
         return {}
+    fee = fee or fees()
+    ENTRY, MKT, TGT = fee.entry, fee.stop, fee.target
     o, h, l, c, qv, tb = (post[:B, k].astype(float) for k in range(6))
     e = o[0]
     fav = (h / e - 1) if side > 0 else (1 - l / e)

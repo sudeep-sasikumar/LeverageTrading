@@ -20,7 +20,10 @@ import pandas as pd
 from .db import DB
 from .grindlab import HOUR, DAY, _hourly, early_grind_mask, hourly_shape
 
-TAKER, MAKER, SLIP = 0.0008, 0.0002, 0.0004
+from .fees import fees as _fees
+
+_FEE = _fees()                                      # config.trade, the one source of fees
+TAKER, MAKER, SLIP = _FEE.taker, _FEE.maker, _FEE.slip
 MIN_STOP, MAX_STOP = 0.006, 0.08          # stop distance bounds (fraction of price)
 MIN_QV24 = 5_000_000
 EXITS = [(1.0, 24), (2.0, 24), (3.0, 24), (1.0, 72), (2.0, 72), (3.0, 72)]   # (target R, time stop hours)

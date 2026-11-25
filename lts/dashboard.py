@@ -114,10 +114,12 @@ def _dig(o, path):
 
 def exits_summary(rows: list[dict]) -> list[dict]:
     """Per shadow exit rule: the tracked plan's live record, for steady-rule grinds and for all grinds."""
-    from .exits import ENTRY, MKT, RULES
+    from .exits import RULES
+    from .fees import fees
     from .grindsignal import steady
     gs = Config().grindsignal
-    full = -gs.plans[gs.primary]["stop"] - ENTRY - MKT + 1e-9
+    fee = fees()
+    full = -gs.plans[gs.primary]["stop"] - fee.entry - fee.stop + 1e-9
     acc = {r: {"all": [], "steady": []} for r in RULES}
     for r in rows:
         e = json.loads(r["exits"] or "null") or {}

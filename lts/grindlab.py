@@ -33,7 +33,6 @@ log = logging.getLogger("lts.grindlab")
 TARGET, STOP, HORIZON_H = 0.06, 0.03, 24       # success = +6% before -3% within 24h
 TRAIL = 0.03                                    # trailing exit: give back 3% from the best point once 3% up
 EXIT_GRID = [(0.03, 0.03), (0.04, 0.02), (0.05, 0.025), (0.06, 0.03), (0.08, 0.04), (0.10, 0.05), (0.12, 0.04)]
-COST = 2 * (0.0008 + 0.0004)                   # Weex taker in + out with slippage
 MIN_QV24 = 5_000_000                            # liquidity floor (24h quote volume)
 DEDUPE_H = 12                                   # one early-grind decision per coin and side per 12h
 MAIN_TAGS = ["AI", "Meme", "DeFi", "Layer-1", "Layer-2", "Gaming", "Infrastructure", "Alpha", "NFT", "Metaverse",
@@ -140,7 +139,11 @@ def hindsight_mask(f: pd.DataFrame, side: int) -> np.ndarray:
 
 
 def outcome(side: int, entry: float, h: np.ndarray, l: np.ndarray, c: np.ndarray) -> dict:
-    """Path after entry (hourly bars, entry at the next bar's open). Stop counts first in a shared bar."""
+    """Path after entry (hourly bars, entry at the next bar's open). Stop counts first in a shared bar.
+    Cost: taker + slippage in and out on every exit (lts.fees, from config.trade)."""
+    from .fees import fees
+    fee = fees()
+    COST = fee.entry + fee.stop
     if side > 0:
         fav, adv = h / entry - 1, 1 - l / entry
     else:

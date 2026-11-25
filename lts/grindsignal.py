@@ -61,16 +61,12 @@ def post_from_db(db: DB, sym: str, ts: int, bars: int = 289) -> np.ndarray | Non
     return arr
 
 
-def plan_outcomes(post: np.ndarray, side: np.ndarray, plans: list[dict], hours: int = 24) -> dict:
-    """{label: net % array} for each plan (entry = first bar's open)."""
-    old = (A.TARGETS, A.STOPS, A.HOURS)
+def plan_outcomes(post: np.ndarray, side: np.ndarray, plans: list[dict], hours: int = 24, with_kind: bool = False) -> dict:
+    """{label: net % array} for each plan (entry = first bar's open); with_kind: {label: aim.Outcome}."""
     out = {}
-    try:
-        for p in plans:
-            A.TARGETS, A.STOPS, A.HOURS = (p["target"],), (p["stop"],), (hours,)
-            out[plan_label(p)] = A.outcomes(post, side)[(p["target"], p["stop"], hours)][0]
-    finally:
-        A.TARGETS, A.STOPS, A.HOURS = old
+    for p in plans:
+        o = A.outcomes(post, side, targets=(p["target"],), stops=(p["stop"],), hours=(hours,))[(p["target"], p["stop"], hours)]
+        out[plan_label(p)] = o if with_kind else o.net
     return out
 
 
@@ -233,14 +229,10 @@ def after_exit(post: np.ndarray, side: int, plans: list[dict], hours: int, after
     out = {}
     e = float(post[0, 0])
     for pl in plans:
-        old = (A.TARGETS, A.STOPS, A.HOURS)
-        try:
-            A.TARGETS, A.STOPS, A.HOURS = (pl["target"],), (pl["stop"],), (hours,)
-            net, xb = A.outcomes(post[None, :hours * 12 + 1], np.array([side]))[(pl["target"], pl["stop"], hours)]
-        finally:
-            A.TARGETS, A.STOPS, A.HOURS = old
-        xb = int(xb[0])
-        kind = "target" if net[0] >= pl["target"] - 0.003 else ("stop" if net[0] <= -pl["stop"] else "time")
+        o = A.outcomes(post[None, :hours * 12 + 1], np.array([side]), targets=(pl["target"],), stops=(pl["stop"],),
+                       hours=(hours,))[(pl["target"], pl["stop"], hours)]
+        xb = int(o.exit_bar[0])
+        kind = A.EXIT_NAMES[int(o.kind[0])]
         x_px = e * (1 + side * pl["target"]) if kind == "target" else (e * (1 - side * pl["stop"]) if kind == "stop"
                                                                         else float(post[xb, 3]))
         rest = post[xb + 1: xb + 1 + after_h * 12]
@@ -417,10 +409,10 @@ def label_signal_plans(cfg, db: DB) -> int:
             continue
         post = post.copy()
         post[0, 0] = r["entry"]                               # the signal's own entry price
-        res = plan_outcomes(post[None], np.array([r["side"]]), gs.plans, gs.hours)
+        res = plan_outcomes(post[None], np.array([r["side"]]), gs.plans, gs.hours, with_kind=True)
         for pl in gs.plans:
-            net = float(res[plan_label(pl)][0])
-            outcome = "target" if net >= pl["target"] - 0.003 else ("stop" if net <= -pl["stop"] else "time")
+            o = res[plan_label(pl)]
+            net, outcome = float(o.net[0]), A.EXIT_NAMES[int(o.kind[0])]
             db.execute("INSERT OR REPLACE INTO signal_plans VALUES (?,?,?,?,?,?,?,?,?)",
                        (r["id"], plan_name(pl), pl["leverage"], pl["target"], pl["stop"], outcome, net,
                         net * pl["leverage"], now))
@@ -512,7 +504,8 @@ def label_grinds(cfg, db: DB) -> int:
 
 def plan_progress(post: np.ndarray, side: int, plans: list[dict]) -> dict:
     """Plans on the bars seen so far: {name: net % once the target or stop is hit, else None (still open)}."""
-    from .aim import ENTRY_COST, SLIP, TAKER
+    from .fees import fees
+    fee = fees()
     ok = np.isfinite(post[:, 1])
     post = post[ok]
     if not len(post):
@@ -526,9 +519,9 @@ def plan_progress(post: np.ndarray, side: int, plans: list[dict]) -> dict:
         hs, ht = np.flatnonzero(adv >= pl["stop"]), np.flatnonzero(fav >= pl["target"])
         i_s, i_t = (hs[0] if len(hs) else 10 ** 9), (ht[0] if len(ht) else 10 ** 9)
         if i_s <= i_t and i_s < 10 ** 9:
-            out[plan_name(pl)] = -pl["stop"] - ENTRY_COST - TAKER - SLIP
+            out[plan_name(pl)] = -pl["stop"] - fee.entry - fee.stop
         elif i_t < 10 ** 9:
-            out[plan_name(pl)] = pl["target"] - ENTRY_COST - TAKER
+            out[plan_name(pl)] = pl["target"] - fee.entry - fee.target
         else:
             out[plan_name(pl)] = None
     return out
