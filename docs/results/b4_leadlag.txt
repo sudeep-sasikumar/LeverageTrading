@@ -1,0 +1,23 @@
+Binance -> Weex lead-lag, 1-minute candles 2026-11-23 21:49 to 2026-11-25 21:49 UTC, 20 most liquid common coins
+corr(k) = correlation of Weex returns with Binance returns k minutes earlier
+  BTCUSDT      minutes  2880  corr k=0 +1.000  k=1 -0.001  k=2 -0.022  best lag 0
+  SOXLUSDT     minutes  2880  corr k=0 +0.995  k=1 +0.002  k=2 -0.066  best lag 0
+  ETHUSDT      minutes  2880  corr k=0 +0.999  k=1 -0.021  k=2 -0.049  best lag 0
+  XAUUSDT      minutes  2880  corr k=0 +0.995  k=1 +0.048  k=2 -0.026  best lag 0
+  XAGUSDT      minutes  2880  corr k=0 +0.983  k=1 +0.037  k=2 -0.037  best lag 0
+  SOXSUSDT     minutes  2880  corr k=0 +0.995  k=1 +0.003  k=2 -0.052  best lag 0
+  SPCXUSDT     minutes  2880  corr k=0 +0.991  k=1 +0.127  k=2 +0.046  best lag 0
+  NVDAUSDT     minutes  2880  corr k=0 +0.996  k=1 -0.012  k=2 -0.020  best lag 0
+  SNDKUSDT     minutes  2880  corr k=0 +0.996  k=1 -0.016  k=2 -0.024  best lag 0
+  SOLUSDT      minutes  2880  corr k=0 +0.993  k=1 -0.016  k=2 -0.041  best lag 0
+  SKHYNIXUSDT  minutes  2880  corr k=0 +0.996  k=1 -0.003  k=2 -0.050  best lag 0
+  ZECUSDT      minutes  2880  corr k=0 +0.999  k=1 -0.009  k=2 -0.055  best lag 0
+  MUUSDT       minutes  2880  corr k=0 +0.993  k=1 -0.008  k=2 -0.028  best lag 0
+  ANTUSDT      minutes  2880  corr k=0 +0.995  k=1 +0.051  k=2 +0.033  best lag 0
+  QQQUSDT      minutes  2880  corr k=0 +0.992  k=1 +0.015  k=2 -0.015  best lag 0
+  KORUUSDT     minutes  2880  corr k=0 +0.995  k=1 +0.013  k=2 -0.050  best lag 0
+  XRPUSDT      minutes  2880  corr k=0 +0.995  k=1 -0.011  k=2 -0.025  best lag 0
+  HYPEUSDT     minutes  2880  corr k=0 +0.998  k=1 -0.020  k=2 -0.049  best lag 0
+  SKHYUSDT     minutes  2880  corr k=0 +0.996  k=1 -0.010  k=2 -0.058  best lag 0
+  BIGTIMEUSDT  minutes  2880  corr k=0 +0.990  k=1 +0.071  k=2 +0.019  best lag 0
+median corr at k=1: -0.002; coins whose best lag is > 0: 0 of 20
