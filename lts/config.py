@@ -131,6 +131,22 @@ class GrindSignal:
     skip_if_level_blocks: bool = True    # trader's rule: skip a signal when a daily/weekly/monthly level sits between
                                          # entry and target (on the year it neither helped nor hurt: DESIGN.md
                                          # section 23). Skipped grinds are still recorded with their levels
+    # When the steady rule is checked (DESIGN.md section 28). "hour_close_first" = as the year test did it: only at
+    # clock-hour closes, only at the FIRST early-grind detection per coin and side in `first_window_h` hours, and
+    # no second call on that coin and side inside that window. "rolling_5m" = every 5 minutes on rolling hours,
+    # re-checked about hourly (the behaviour until 25 Nov 2026).
+    steady_eval: str = "hour_close_first"
+    first_window_h: int = 12
+    # Portfolio limits for grind signals (DESIGN.md section 19 had turned the first two off; back ON 25 Nov 2026).
+    # Set to false / 0 to switch each off.
+    daily_stop: bool = True              # no new grind signal today once today's closed grind signals reach risk.daily_stop_r
+    streak_stop: bool = True             # ... or after risk.max_consecutive_losses losses in a row today
+    max_same_direction: int = 2          # at most this many open-or-today grind signals in one direction while the
+                                         # market (median coin, 6h) moves that way; 0 = no limit
+    # Part C signal policy: send only when the selecting rule's expected net after costs is positive (its tested
+    # record, lts/models/steady_history.json or the model's band table). False = send every rule pick (paper).
+    require_positive_ev: bool = True
+    min_live_paper_trades: int = 30      # before `live` can take effect: closed paper trades that match the rule
 
 
 @dataclass

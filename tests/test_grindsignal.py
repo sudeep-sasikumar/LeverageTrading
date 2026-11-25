@@ -35,6 +35,8 @@ def cand(cfg, symbol, p, side=1):
 
 def test_every_top_signal_is_sent_with_all_three_plans(tmp_path):
     cfg, db, tg = Config(), DB(tmp_path / "g.sqlite"), Notifier()
+    cfg.grindsignal.require_positive_ev = False             # this band loses after costs; see the EV-gate test
+    cfg.grindsignal.max_same_direction = 0
     cs = [cand(cfg, f"C{i}USDT", 0.2) for i in range(6)] + [cand(cfg, "LOWUSDT", 0.1)]
     asyncio.run(SignalEngine(cfg, db, None, tg).decide(cs, None, NOW))
     assert [c["decision"] for c in cs[:6]] == ["sent"] * 6                 # no daily cap
@@ -149,7 +151,7 @@ def test_five_minute_scans_record_about_once_an_hour_and_when_the_score_crosses(
     cfg.grindsignal.selector = "model"                      # this test is about the model-score path
     ensure_live_schema(db)
     me = SimpleNamespace(cfg=cfg, db=db, gs_bundle={"bands": [{"top": 0.2, "p_min": 0.15}]}, gs_loaded=_t.time(),
-                         grind_levels=lambda rows: None)
+                         grind_levels=lambda rows, db=None: None)
     scores = iter([0.10, 0.11, 0.16, 0.17])
     monkeypatch.setattr(GS, "pre_from_db", lambda *a: None)
     monkeypatch.setattr(GS, "score_rows", lambda rows, pres, b: [r.update(p=next(scores), band=None) for r in rows])
@@ -167,15 +169,64 @@ def test_five_minute_scans_record_about_once_an_hour_and_when_the_score_crosses(
     assert db.query("SELECT COUNT(*) n FROM grind_live")[0]["n"] == 2
 
 
-def test_grind_signals_are_not_stopped_by_earlier_losses(tmp_path):
+def test_grind_signals_daily_and_streak_stops_are_back_on_and_switchable(tmp_path):
+    """Review item 6: grind signals obey the daily-loss and losing-streak stops again (DESIGN.md section 19 had
+    turned them off); each can be switched off in config."""
     cfg, db, tg = Config(), DB(tmp_path / "l.sqlite"), Notifier()
+    cfg.grindsignal.require_positive_ev = False
     for i in range(3):                                   # three losing grind signals today: -3.9R
         db.execute("""INSERT INTO signals(symbol, side, ts, grade, entry, sl, tp, sl_pct, tp_pct, leverage, status, kind,
-                      exit_ts, ret_r) VALUES (?, 1, ?, 'P', 10, 9.9, 10.2, 0.01, 0.02, 5, 'stopped', 'grindsig', ?, -1.3)""",
+                      exit_ts, ret_r) VALUES (?, 1, ?, 'P', 10, 9.9, 10.2, 0.01, 0.02, 5, 'sl', 'grindsig', ?, -1.3)""",
                    (f"L{i}USDT", NOW - 3_600_000, NOW - 600_000))
     cs = [cand(cfg, "NEWUSDT", 0.2), cand(cfg, "L0USDT", 0.2)]
     asyncio.run(SignalEngine(cfg, db, None, tg).decide(cs, None, NOW))
-    assert cs[0]["decision"] == "sent" and cs[1]["decision"] == "skipped:symbol_cooldown"
+    assert cs[0]["decision"] == "skipped:daily_stop" and cs[1]["decision"] == "skipped:symbol_cooldown"
+    cfg.grindsignal.daily_stop = False
+    c = cand(cfg, "NEW2USDT", 0.2)
+    asyncio.run(SignalEngine(cfg, db, None, tg).decide([c], None, NOW))
+    assert c["decision"] == "skipped:loss_streak"
+    cfg.grindsignal.streak_stop = False
+    c = cand(cfg, "NEW3USDT", 0.2)
+    asyncio.run(SignalEngine(cfg, db, None, tg).decide([c], None, NOW))
+    assert c["decision"] == "sent"
+
+
+def test_grind_signals_same_direction_limit_while_the_market_moves_that_way(tmp_path):
+    cfg, db, tg = Config(), DB(tmp_path / "c.sqlite"), Notifier()
+    cfg.grindsignal.require_positive_ev = False
+    assert cfg.grindsignal.max_same_direction == 2
+    shorts = [cand(cfg, f"S{i}USDT", 0.2, side=-1) for i in range(3)]
+    for c in shorts:
+        c["features"]["mkt_r6"] = 0.01                   # the median coin is falling too (aligned with the short)
+    asyncio.run(SignalEngine(cfg, db, None, tg).decide(shorts, None, NOW))
+    assert [c["decision"] for c in shorts] == ["sent", "sent", "skipped:same_direction_limit"]
+    lone = cand(cfg, "S9USDT", 0.2, side=-1)
+    lone["features"]["mkt_r6"] = -0.01                   # market moving the other way: an own move, no cap
+    long_ = cand(cfg, "L9USDT", 0.2, side=1)
+    long_["features"]["mkt_r6"] = 0.01
+    asyncio.run(SignalEngine(cfg, db, None, tg).decide([lone, long_], None, NOW))
+    assert lone["decision"] == "sent" and long_["decision"] == "sent"
+
+
+def test_btc_shock_and_funding_vetoes_apply_to_grind_signals(tmp_path):
+    from lts.service import market_now
+    cfg, db, tg = Config(), DB(tmp_path / "b.sqlite"), Notifier()
+    cfg.grindsignal.require_positive_ev = False
+    for i, c in enumerate((100.0, 100.0, 100.0, 98.0)):          # BTC -2% over the last 15 minutes
+        db.execute("INSERT INTO klines(symbol, ts, o, h, l, c) VALUES ('BTCUSDT', ?, ?, ?, ?, ?)",
+                   (NOW - (4 - i) * 300_000, c, c, c, c))
+    db.execute("INSERT INTO premium(symbol, ts, funding_rate) VALUES ('FUNDUSDT', ?, 0.002)", (NOW - 60_000,))
+    m_long, m_short = market_now(db, "FUNDUSDT", 1, NOW), market_now(db, "FUNDUSDT", -1, NOW)
+    assert abs(m_long["btc_r_15m"] + 0.02) < 1e-9 and abs(m_short["btc_r_15m"] - 0.02) < 1e-9
+    assert m_long["fund_rate"] == 0.002 and m_short["fund_rate"] == -0.002
+    a = cand(cfg, "AUSDT", 0.2)
+    a["features"].update(market_now(db, "AUSDT", 1, NOW))
+    b = cand(cfg, "FUNDUSDT", 0.2, side=1)
+    b["features"].update(m_long)
+    b["features"]["btc_r_15m"] = 0.0
+    asyncio.run(SignalEngine(cfg, db, None, tg).decide([a, b], None, NOW))
+    assert a["decision"] == "skipped:btc_shock" and b["decision"] == "skipped:funding_crowded"
+
 
 
 def test_levels_between_entry_target_and_stop():
@@ -212,6 +263,7 @@ def test_after_exit_follows_price_for_24h_after_the_stop():
 
 def test_signal_shows_levels_and_can_skip_when_a_level_blocks(tmp_path):
     cfg, db, tg = Config(), DB(tmp_path / "v.sqlite"), Notifier()
+    cfg.grindsignal.require_positive_ev = False
     assert cfg.grindsignal.skip_if_level_blocks                         # trader's rule is on by default
     cfg.grindsignal.skip_if_level_blocks = False
     lv = {"block": [{"price": 10.15, "tf": "weekly", "what": "weekly swing high", "dist": 0.015}],
@@ -241,18 +293,64 @@ def test_steady_rule_and_why_not():
     assert gs.selector == "steady" and GS.steady(steady_row(), gs)
     assert not GS.steady(steady_row(r_24h=0.05), gs) and not GS.steady(steady_row(big6=0.5), gs)
     assert not GS.steady(steady_row(r2_24h=None), gs)                     # a missing factor never passes
-    msg = GS.why_not(steady_row(r_24h=0.05, hours_with24=10), gs, None)
+    assert gs.steady_eval == "hour_close_first"
+    msg = GS.why_not(steady_row(r_24h=0.05, hours_with24=10, first=True), gs, None)
     assert msg.startswith("not steady all day") and "24h +5.0%" in msg and "10/24 hours" in msg
+    assert GS.why_not(steady_row(first=False), gs, None).startswith("not checked")
+    assert GS.selected(steady_row(first=True), gs, None) and not GS.selected(steady_row(first=False), gs, None)
+    gs.steady_eval = "rolling_5m"                                          # the old behaviour: any 5-minute record
+    assert GS.selected(steady_row(), gs, None)
 
 
-def test_steady_signal_message_uses_the_rules_year_record(tmp_path):
+def history_file(tmp_path, net):
+    import json
+    cfg = Config()
+    plans = {GS.plan_name(pl): {"n": 539, "n_days": 300, "win": 0.38, "net": net, "se_day": 0.001, "t_day": net / 0.001,
+                                "months_pos": 0.36, "n_months": 14} for pl in cfg.grindsignal.plans}
+    p = tmp_path / "steady_history.json"
+    p.write_text(json.dumps({"rules": {"steady/hour_close_first": {"plans": plans, "passed_bar": False,
+                                                                  "source": "test record"}}}), encoding="utf-8")
+    return p
+
+
+def test_steady_signal_message_uses_the_rules_year_record(tmp_path, monkeypatch):
     cfg, db, tg = Config(), DB(tmp_path / "s.sqlite"), Notifier()
-    c = cand(cfg, "STDYUSDT", 0.1) | {"selector": "steady", "p_min": -1.0, "steady": steady_row(),
-                                      "levels": {"block": [], "cushion": []}}
-    asyncio.run(SignalEngine(cfg, db, None, tg).decide([c], None, NOW))
+    monkeypatch.setattr(GS, "HISTORY_PATH", history_file(tmp_path, -0.0008))
+    cfg.grindsignal.require_positive_ev = False
+    c = cand(cfg, "STDYUSDT", None) | {"selector": "steady", "p_min": -1.0, "steady": steady_row(),
+                                       "levels": {"block": [], "cushion": []}}
+    asyncio.run(SignalEngine(cfg, db, None, tg).decide([c], None, NOW))   # no model score: still sent
     msg = tg.sent[0]
     assert c["decision"] == "sent" and "all-day steady grind" in msg and "16/24 hours" in msg
     assert "history (steady all-day grinds, past year): won 38%" in msg
+    assert "Expected net per trade (5x +2.00% / -1.00%): <b>-0.08%</b> (90% interval -0.24% to +0.08%)" in msg
+    sig = dict(db.query("SELECT grade, model_version FROM signals")[0])
+    assert sig == {"grade": "P", "model_version": "grind-steady-hour_close_first"}
+
+
+def test_expected_net_gate_and_go_live_gate(tmp_path, monkeypatch):
+    """Part C: nothing is sent unless the rule's tested net after costs is positive; 'live' only takes effect
+    after the rule passed its bar AND has enough closed live paper trades under that rule."""
+    from lts.gate import live_allowed
+    cfg, db, tg = Config(), DB(tmp_path / "e.sqlite"), Notifier()
+    assert cfg.grindsignal.require_positive_ev and not cfg.grindsignal.live
+    st = {"selector": "steady", "p_min": -1.0, "steady": steady_row(), "levels": {"block": [], "cushion": []}}
+    monkeypatch.setattr(GS, "HISTORY_PATH", history_file(tmp_path, -0.0008))
+    c = cand(cfg, "NEGUSDT", None) | st
+    asyncio.run(SignalEngine(cfg, db, None, tg).decide([c], None, NOW))
+    assert c["decision"] == "skipped:expected_net_not_positive" and not tg.sent
+    monkeypatch.setattr(GS, "HISTORY_PATH", tmp_path / "missing.json")      # untested rule: nothing is sent
+    c = cand(cfg, "NONEUSDT", None) | st
+    asyncio.run(SignalEngine(cfg, db, None, tg).decide([c], None, NOW))
+    assert c["decision"] == "skipped:expected_net_not_positive"
+    monkeypatch.setattr(GS, "HISTORY_PATH", history_file(tmp_path, 0.002))
+    cfg.grindsignal.live = True
+    c = cand(cfg, "POSUSDT", None) | st
+    asyncio.run(SignalEngine(cfg, db, None, tg).decide([c], None, NOW))
+    assert c["decision"] == "sent" and c["grade"] == "P"                    # live on, but the gate is not met
+    ok, why = live_allowed(cfg, db)
+    assert not ok and any("pre-registered bar" in w for w in why) and any("1/30 closed" in w or "0/30 closed" in w for w in why)
+
 
 
 def test_dashboard_applies_the_rule_to_grinds_recorded_before_it(tmp_path, monkeypatch):

@@ -19,6 +19,11 @@ log = logging.getLogger("lts.signals")
 DAY = 86_400_000
 
 
+def pl_name(g) -> str:
+    from .grindsignal import plan_name
+    return plan_name(g.plans[g.primary])
+
+
 def fmt_price(x: float, precision: int | None) -> str:
     if precision is None or precision < 0:
         precision = max(0, 5 - int(math.floor(math.log10(abs(x)))) - 1) if x else 2
@@ -40,6 +45,7 @@ class RiskState:
         same = "COALESCE(kind,'momentum')=?"
         self.open = [s for s in self.all_open if (s.get("kind") or "momentum") == kind]
         today = [dict(r) for r in db.query(f"SELECT * FROM signals WHERE ts>=? AND {same} ORDER BY ts", (day0, kind))]
+        self.today = today
         self.last_ts = max((s["ts"] for s in today), default=0)
         self.sent_today = len(today)
         closed = [s for s in today if s["status"] != "open" and s["ret_r"] is not None]
@@ -58,12 +64,24 @@ class RiskState:
                         (now_ms - int(cfg.risk.symbol_cooldown_hours * 3_600_000),))
         self.cooling = {r["symbol"] for r in cool}
 
-    def block_reason(self, cfg: Config, symbol: str) -> str | None:
+    def block_reason(self, cfg: Config, symbol: str, side: int | None = None, mkt_r6: float | None = None) -> str | None:
         r = cfg.risk
-        if self.kind == "grindsig":                       # every qualifying grind is sent; the trader picks.
-            if any(s["symbol"] == symbol for s in self.all_open):    # no daily cap, daily stop or streak stop
+        if self.kind == "grindsig":                       # no daily count cap; the limits below are switchable
+            g = cfg.grindsignal
+            if any(s["symbol"] == symbol for s in self.all_open):
                 return "already_open"
-            return "symbol_cooldown" if symbol in self.cooling else None
+            if symbol in self.cooling:
+                return "symbol_cooldown"
+            if g.daily_stop and self.day_r <= r.daily_stop_r:
+                return "daily_stop"
+            if g.streak_stop and self.streak >= r.max_consecutive_losses:
+                return "loss_streak"
+            if g.max_same_direction and side is not None and mkt_r6 is not None and mkt_r6 > 0:
+                ids = {s["id"] for s in self.open if s["side"] == side} | \
+                      {s["id"] for s in self.today if s["side"] == side}
+                if len(ids) >= g.max_same_direction:
+                    return "same_direction_limit"         # the market is moving this way: correlated calls
+            return None
         if self.kind == "daily":
             if self.open:
                 return "daily_trade_open"
@@ -114,8 +132,13 @@ class SignalEngine:
             cand["plan"]["gain_margin"] = cand["all_plans"][g.primary]["gain_margin"]
             cand["plan"]["loss_margin"] = cand["all_plans"][g.primary]["loss_margin"]
             cand["plan"]["margin_frac"] = min(1.0, self.cfg.risk.risk_per_trade / cand["plan"]["loss_margin"])
-            cand["rule_score"] = cand["score"] = float(cand["p_model"])
-            cand["p"], cand["ev_r"] = cand["p_model"], None
+            from .gate import expected_net
+            p_model = cand.get("p_model")
+            cand["rule_score"] = cand["score"] = float(p_model) if p_model is not None else (
+                1.0 if g.selector == "steady" else 0.0)
+            cand["p"] = p_model
+            cand["expected"] = expected_net(g, cand)
+            cand["ev_r"] = cand["expected"]["net"] / pp["stop"] if cand["expected"] else None
             return
         if cand.get("kind") == "daily":
             a = self.cfg.aim
@@ -156,13 +179,11 @@ class SignalEngine:
         """A / B = validated model (real signals). P = paper: no validated model yet."""
         sc = self.cfg.signal
         if cand.get("kind") == "grindsig":
-            from .grindsignal import qualifies
-            g = self.cfg.grindsignal
-            if cand["score"] < cand.get("p_min", 1.0):
+            from .gate import live_allowed
+            if cand.get("selector") != "steady" and cand["score"] < cand.get("p_min", 1.0):
                 return None
-            band_plans = (cand.get("band") or {}).get("plans") or []
-            primary = band_plans[g.primary] if len(band_plans) > g.primary else None
-            return "G" if (g.live and qualifies(primary)) else "P"
+            ok, _ = live_allowed(self.cfg, self.db, cand)
+            return "G" if ok else "P"
         if cand.get("kind") == "daily":
             return ("D" if self.cfg.aim.live else "P") if cand["score"] >= self.cfg.aim.threshold else None
         if cand.get("kind") == "grindlab":
@@ -209,6 +230,9 @@ class SignalEngine:
                 reason = "logged_only"                    # grind signals come from the grind scanner
             elif c.get("kind") == "grindsig" and cfg.grindsignal.skip_if_level_blocks and (c.get("levels") or {}).get("block"):
                 reason = "level_in_way"                   # a daily/weekly/monthly level before the target
+            elif c.get("kind") == "grindsig" and cfg.grindsignal.require_positive_ev and \
+                    not ((c.get("expected") or {}).get("net") or 0) > 0:
+                reason = "expected_net_not_positive"      # the rule's tested net after costs is not above zero
             elif c.get("kind", "momentum") == "momentum" and not cfg.signal.momentum_send:
                 reason = "logged_only"                    # momentum setups: recorded for learning, not sent
             else:
@@ -222,7 +246,7 @@ class SignalEngine:
                 elif (feat.get("fund_rate") or 0.0) > cfg.risk.max_aligned_funding:
                     reason = "funding_crowded"
                 else:
-                    reason = state.block_reason(cfg, c["symbol"])
+                    reason = state.block_reason(cfg, c["symbol"], side=c.get("side"), mkt_r6=feat.get("mkt_r6"))
                 if reason is None:
                     reason = self._execution_check(c)
                 if reason is None:
@@ -266,8 +290,9 @@ class SignalEngine:
             sl, tp = round(sl, int(prec)), round(tp, int(prec))
         expires = now_ms + plan.get("horizon_bars", self.cfg.trade.horizon_bars) * BAR_MS
         kind = {"grind": "grind", "grindlab": "grind", "daily": "daily", "grindsig": "grindsig"}.get(c.get("kind"), "momentum")
+        from .gate import rule_version
         version = {"grind": "grind-rules", "grindlab": "grind-lab", "daily": "daily-aim",
-                   "grindsig": "grind-model"}.get(c.get("kind")) or \
+                   "grindsig": rule_version(self.cfg.grindsignal)}.get(c.get("kind")) or \
             (bundle["version"] if bundle else "rules")
         cur = self.db.execute(
             """INSERT INTO signals(candidate_id,symbol,side,ts,grade,entry,sl,tp,sl_pct,tp_pct,leverage,margin_frac,
@@ -280,10 +305,11 @@ class SignalEngine:
     def _grindsig_message(self, sig, c, plan, prec, icon, word) -> str:
         g = self.cfg.grindsignal
         b = c.get("band") or {}
-        from .grindsignal import STEADY_HISTORY, plan_name
+        from .grindsignal import plan_name, rule_record
         is_steady = c.get("selector") == "steady"
         if is_steady:
-            hist = {(pl["leverage"], pl["target"], pl["stop"]): STEADY_HISTORY.get(plan_name(pl)) for pl in g.plans}
+            rec = (rule_record(g) or {}).get("plans") or {}
+            hist = {(pl["leverage"], pl["target"], pl["stop"]): rec.get(plan_name(pl)) for pl in g.plans}
             top = "steady all-day grinds, past year"
             st = c.get("steady") or {}
             head = (f" · all-day steady grind: 24h {(st.get('r_24h') or 0) * 100:+.1f}%, "
@@ -311,6 +337,11 @@ class SignalEngine:
             elif h:
                 lines.append(f"     history ({top}, unseen months): won {h['win']:.0%}, {h['net'] * 100:+.2f}% per trade, "
                              f"{h['margin'] * 100:+.1f}% margin avg")
+        ex = c.get("expected")
+        if ex:
+            ci = (f" (90% interval {ex['lo'] * 100:+.2f}% to {ex['hi'] * 100:+.2f}%)" if ex.get("lo") is not None else "")
+            lines += ["", f"Expected net per trade ({pl_name(g)}): <b>{ex['net'] * 100:+.2f}%</b>{ci} - "
+                          f"{esc(ex['source'])}, after fees"]
         lines += self._level_lines(c, prec)
         f = c.get("features", {})
         lines.append(f"6h {f.get('r_6h', 0) * 100:+.1f}% · 24h {f.get('r_24h', 0) * 100:+.1f}% · "

@@ -26,6 +26,37 @@ from .universe import refresh_universe
 log = logging.getLogger("lts.service")
 
 
+def market_now(db: DB, sym: str, side: int, end: int) -> dict:
+    """Side-aligned BTC 15-minute return (last three closed 5m candles) and the coin's current funding rate
+    (premium index within 30 min, else the last settled rate within 9h), multiplied by the side like the
+    momentum features, so SignalEngine.decide's BTC-shock and crowded-funding vetoes apply to grind signals."""
+    out = {}
+    btc = db.query("SELECT c FROM klines WHERE symbol='BTCUSDT' AND ts<? ORDER BY ts DESC LIMIT 4", (end,))
+    if len(btc) == 4 and btc[3]["c"]:
+        out["btc_r_15m"] = side * (btc[0]["c"] / btc[3]["c"] - 1)
+    pr = db.query("SELECT funding_rate FROM premium WHERE symbol=? AND ts<=? AND ts>? ORDER BY ts DESC LIMIT 1",
+                  (sym, end + 10 * 60_000, end - 30 * 60_000))
+    if pr and pr[0]["funding_rate"] is not None:
+        out["fund_rate"] = side * pr[0]["funding_rate"]
+    else:
+        fz = db.query("SELECT rate FROM funding WHERE symbol=? AND ts<=? AND ts>? ORDER BY ts DESC LIMIT 1",
+                      (sym, end, end - 9 * 3_600_000))
+        if fz and fz[0]["rate"] is not None:
+            out["fund_rate"] = side * fz[0]["rate"]
+    return out
+
+
+def scheduled(schedule: str, now: datetime) -> bool:
+    """A nightly job's schedule: "daily", "weekly" (Mondays, UTC) or "off"."""
+    if schedule == "daily":
+        return True
+    if schedule == "weekly":
+        return now.weekday() == 0
+    if schedule == "off":
+        return False
+    raise ValueError(f"unknown schedule {schedule!r} (use daily, weekly or off)")
+
+
 # ---- scan -------------------------------------------------------------------
 def scan(cfg: Config, db: DB, bar_ts: int, cache: DatasetCache | None = None) -> list[dict]:
     """Detect candidates on the bar that opened at bar_ts (already closed and stored)."""
@@ -294,8 +325,16 @@ class Service:
         if not getattr(self, "grind_scanner", None):
             from .grindlab import FiveMinuteScanner
             self.grind_scanner = FiveMinuteScanner(self.cfg)
+        t0 = time.time()
         rows = await asyncio.to_thread(work)
-        rows = self.grinds_to_record(rows, end)
+
+        def record():                                    # database work off the event loop (own connection)
+            own = DB(self.cfg.path(self.cfg.storage.db_path))
+            try:
+                return self.grinds_to_record(rows, end, own)
+            finally:
+                own.close()
+        rows = await asyncio.to_thread(record)
         meta = {r["symbol"]: dict(r) for r in self.db.query("SELECT symbol, on_weex, price_precision FROM symbols")}
         cands = []
         for r in rows:
@@ -342,83 +381,109 @@ class Service:
                  sum(1 for c in worth if c.get("decision") == "sent"))
         return cands
 
-    def grinds_to_record(self, rows: list[dict], end: int) -> list[dict]:
-        """Score every detected grind, then keep (record, and consider for sending) only:
+    def grinds_to_record(self, rows: list[dict], end: int, db: DB | None = None) -> list[dict]:
+        """Score every detected grind, decide which meet the sending rule, then keep (record, and consider for
+        sending) only:
         - a grind with no record for that coin and side in the last 55 minutes (about one record an hour), or
-        - a grind that has just started to meet the sending rule (it did not at its last record)."""
+        - a grind that has just started to meet the sending rule (it did not at its last record).
+        With steady_eval = "hour_close_first" the steady rule is checked only at clock-hour closes and only at the
+        first early-grind detection per coin and side in first_window_h hours, as in the year test."""
         from . import grindsignal as GS
         from .grindlab import _insert_live
+        db = db or self.db
         g = self.cfg.grindsignal
         if not rows:
             return rows
         if not getattr(self, "gs_bundle", None) or time.time() - getattr(self, "gs_loaded", 0) > 6 * 3600:
             self.gs_bundle, self.gs_loaded = GS.load_bundle(self.cfg), time.time()
-        if g.enabled and self.gs_bundle:
-            pres = [GS.pre_from_db(self.db, r["symbol"], r["ts"]) for r in rows]
-            GS.score_rows(rows, pres, self.gs_bundle)
-            self.gs_pmin = GS.threshold(self.gs_bundle, g.top_share)
+        if g.enabled and self.gs_bundle:                 # the model score is recorded; only the "model" rule needs it
+            try:
+                pres = [GS.pre_from_db(db, r["symbol"], r["ts"]) for r in rows]
+                GS.score_rows(rows, pres, self.gs_bundle)
+                self.gs_pmin = GS.threshold(self.gs_bundle, g.top_share)
+            except Exception:
+                log.exception("grind model scoring failed")
+        hour_first = g.selector == "steady" and g.steady_eval == "hour_close_first"
+        first = GS.mark_first(db, rows, end, g) if hour_first else None
         keep = []
         p_min = getattr(self, "gs_pmin", None)
         for r in rows:
+            r["first"] = None if first is None else (r["symbol"], r["side"]) in first
             r["selected"] = GS.selected(r, g, p_min)
-            last = self.db.query("SELECT selected FROM grind_live WHERE symbol=? AND side=? AND ts>? "
-                                 "ORDER BY ts DESC LIMIT 1", (r["symbol"], r["side"], end - 55 * 60_000))
+            last = db.query("SELECT selected FROM grind_live WHERE symbol=? AND side=? AND ts>? "
+                            "ORDER BY ts DESC LIMIT 1", (r["symbol"], r["side"], end - 55 * 60_000))
             crossed = r["selected"] and last and not last[0]["selected"]
             if not last or crossed:
                 keep.append(r)
-        _insert_live(self.db, keep)
+        _insert_live(db, keep)
         for r in keep:
-            self.db.execute("UPDATE grind_live SET selected=? WHERE symbol=? AND ts=? AND side=?",
-                            (int(r["selected"]), r["symbol"], r["ts"], r["side"]))
-        self.grind_levels(keep)
+            db.execute("UPDATE grind_live SET selected=? WHERE symbol=? AND ts=? AND side=?",
+                       (int(r["selected"]), r["symbol"], r["ts"], r["side"]))
+        self.grind_levels(keep, db)
         return keep
 
-    def grind_levels(self, rows: list[dict]) -> None:
+    def grind_levels(self, rows: list[dict], db: DB | None = None) -> None:
         """Daily/weekly/monthly levels between entry and the tracked plan's target and stop, for each recorded grind."""
         import json
         from .grindlab import _daily
         from .levels import between, major_levels
+        db = db or self.db
         g = self.cfg.grindsignal
         pl = g.plans[g.primary]
         for r in rows:
             try:
-                d = _daily(self.db, r["symbol"]).reset_index()
+                d = _daily(db, r["symbol"]).reset_index()
                 lv = between(major_levels(d, r["ts"]), r["price"], r["side"], pl["target"], pl["stop"])
             except Exception:
                 log.exception("levels for %s", r["symbol"])
                 continue
             r["levels"] = lv
-            self.db.execute("UPDATE grind_live SET levels=? WHERE symbol=? AND ts=? AND side=?",
-                            (json.dumps(lv), r["symbol"], r["ts"], r["side"]))
+            db.execute("UPDATE grind_live SET levels=? WHERE symbol=? AND ts=? AND side=?",
+                       (json.dumps(lv), r["symbol"], r["ts"], r["side"]))
+
+    def market_now(self, sym: str, side: int, end: int) -> dict:
+        """Side-aligned BTC 15-minute return and the current funding rate, for the BTC-shock and crowded-funding
+        vetoes (same definitions as the momentum features: positive aligned funding = the trade pays it)."""
+        return market_now(self.db, sym, side, end)
 
     async def grind_signals(self, rows: list[dict], meta: dict) -> None:
-        """Send ALL recorded grinds that meet the sending rule (steady all-day grind, or the model's top share)."""
+        """Send ALL recorded grinds that meet the sending rule (steady all-day grind, or the model's top share).
+        The steady rule does not need the model: a missing or failed model only blanks the recorded score."""
         from . import grindsignal as GS
         g = self.cfg.grindsignal
-        if not g.enabled or not rows or not getattr(self, "gs_bundle", None) or "p" not in rows[0]:
+        if not g.enabled or not rows:
             return
-        p_min = self.gs_pmin
+        p_min = getattr(self, "gs_pmin", None)
+        if g.selector != "steady" and (not getattr(self, "gs_bundle", None) or p_min is None):
+            log.warning("grind signals: selector=model but no model is loaded; nothing is selected")
         GS.record_grinds(self.db, rows, p_min)
         picks = []
         for r in rows:
             if not r.get("selected"):
                 continue
             m = meta.get(r["symbol"], {})
+            feats = {k: r.get(k) for k in ("r_6h", "r_24h", "sh_r2_6h", "mkt_r6") if r.get(k) is not None}
+            feats.update(self.market_now(r["symbol"], r["side"], int(r["ts"])))
             picks.append({"symbol": r["symbol"], "side": r["side"], "ts": r["ts"], "ref_price": r["price"],
-                          "atr_pct": r.get("atr_1h"), "kind": "grindsig", "p_model": r["p"], "band": r["band"],
+                          "atr_pct": r.get("atr_1h"), "kind": "grindsig", "p_model": r.get("p"), "band": r.get("band"),
                           "p_min": p_min if g.selector != "steady" else -1.0, "selector": g.selector,
                           "steady": {k: r.get(k) for k in ("r_24h", "r2_24h", "hours_with24", "r2_6h", "hours_with6", "big6")},
                           "levels": r.get("levels"),
                           "on_weex": bool(m.get("on_weex")), "src": "binance", "price_precision": m.get("price_precision"),
-                          "features": {k: r.get(k) for k in ("r_6h", "r_24h", "sh_r2_6h") if r.get(k) is not None}})
+                          "features": feats})
         for p in picks:
-            p["book"] = await self.weex.book(p["symbol"]) if p["on_weex"] else None
+            p["book"] = None
+            if p["on_weex"]:
+                try:
+                    p["book"] = await self.weex.book(p["symbol"])
+                except Exception as e:                   # one Weex error must not lose the cycle's decisions
+                    log.warning("weex book %s failed: %s", p["symbol"], e)
             p["weex_qv24"] = (self.collector.weex_tickers.get(p["symbol"]) or {}).get("qv24")
             if p["book"] and p["ref_price"]:
                 p["features"]["weex_dev_bps"] = (p["book"]["mid"] / p["ref_price"] - 1) * 1e4 * p["side"]
         for r in rows:
             self.db.execute("UPDATE grind_live SET model_p=? WHERE symbol=? AND ts=? AND side=?",
-                            (r["p"], r["symbol"], r["ts"], r["side"]))
+                            (r.get("p"), r["symbol"], r["ts"], r["side"]))
         if picks:
             await self.engine.decide(picks, None, int(time.time() * 1000))
         decided = {(p["symbol"], p["side"]): p.get("decision") for p in picks}
