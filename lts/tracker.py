@@ -36,30 +36,81 @@ def evaluate_bars(sig: dict, bars: list[tuple]) -> tuple[str | None, float, int,
     return None, 0.0, 0, mfe, mae
 
 
+def first_minute(sig: dict) -> int:
+    """First 1-minute candle to check: the first FULL minute after the signal was sent (the candle the signal was
+    sent in opened before entry, so its high/low may be prices from before the trade), or the minute after the
+    last one already checked."""
+    t = max(sig.get("last_checked_ts") or sig["ts"], sig["ts"])
+    return -(-t // MIN) * MIN
+
+
+def add_gaps(sig: dict, gaps: list[list[int]]) -> str | None:
+    old = json.loads(sig.get("track_gaps") or "[]")
+    return json.dumps(old + gaps) if gaps else sig.get("track_gaps")
+
+
+def missing(bars: list[tuple], start: int, end: int) -> list[list[int]]:
+    """Stretches of [start, end) with no 1-minute candle (gaps of 3+ minutes; a quiet minute can be absent)."""
+    out, t = [], start
+    for b in bars:
+        if b[0] - t >= 3 * MIN:
+            out.append([t, b[0]])
+        t = max(t, b[0] + MIN)
+    if end - t >= 3 * MIN:
+        out.append([t, end])
+    return out
+
+
+async def fetch_minutes(sym: str, start: int, end: int, primary, fallback) -> tuple[list[tuple], list[list[int]]]:
+    """1-minute candles for [start, end) from the venue the user trades, paging back as far as needed (after a
+    long downtime too); stretches it cannot cover are filled from the other venue, and anything still missing is
+    returned as gaps."""
+    bars = []
+    try:
+        bars = await primary.klines_range(sym, "1m", start, end)
+    except Exception as e:
+        log.warning("1m candles %s from %s failed: %s", sym, getattr(primary, "name", "?"), e)
+    gaps = missing(bars, start, end)
+    if gaps and fallback is not None:
+        extra = []
+        for a, b in gaps:
+            try:
+                extra += await fallback.klines_range(sym, "1m", a, b)
+            except Exception as e:
+                log.warning("1m candles %s fallback failed: %s", sym, e)
+        if extra:
+            bars = sorted({b[0]: b for b in bars + extra}.values())
+            gaps = missing(bars, start, end)
+    return bars, gaps
+
+
 async def track_open_signals(cfg: Config, db: DB, binance, weex, notifier) -> None:
     now = int(time.time() * 1000)
     for row in db.query("SELECT s.*, y.on_weex FROM signals s LEFT JOIN symbols y ON y.symbol=s.symbol "
                         "WHERE s.status='open'"):
         sig = dict(row)
-        ex = weex if sig.get("on_weex") else binance          # track on the venue the user trades
-        try:
-            start = max(sig["last_checked_ts"] or sig["ts"], sig["ts"]) // MIN * MIN
-            need = int(min(1000, (now - start) // MIN + 2))
-            bars = [b for b in await ex.klines(sig["symbol"], "1m", limit=max(need, 2)) if b[0] >= start]
-        except Exception as e:
-            log.warning("tracking %s failed: %s", sig["symbol"], e)
+        ex, other = (weex, binance) if sig.get("on_weex") else (binance, None)   # track on the venue the user trades
+        start = first_minute(sig)
+        end = now // MIN * MIN                                                  # candles that have closed
+        if end <= start:
+            continue
+        bars, gaps = await fetch_minutes(sig["symbol"], start, end, ex, other)
+        if not bars and not gaps:
             continue
         status, px, ts, mfe, mae = evaluate_bars(sig, bars)
         if status is None and now >= sig["expires_ts"] and bars:
             status, px, ts = "time", bars[-1][4], now
+        track_gaps = add_gaps(sig, gaps)
+        if gaps:
+            log.warning("signal #%d %s: no 1m candles for %d stretch(es), e.g. %s", sig["id"], sig["symbol"], len(gaps), gaps[0])
         if status:
+            db.execute("UPDATE signals SET track_gaps=? WHERE id=?", (track_gaps, sig["id"]))
             closed = close_signal(cfg, db, sig, status, px, ts, mfe, mae)
             await notifier.send(exit_message(cfg, db, closed))
             log.info("signal #%d %s closed: %s %+.2fR", sig["id"], sig["symbol"], status, closed["ret_r"])
         else:
-            closed_bars = [b for b in bars if b[0] + MIN <= now]
-            last = closed_bars[-1][0] + MIN if closed_bars else sig["last_checked_ts"]
-            db.execute("UPDATE signals SET mfe=?, mae=?, last_checked_ts=? WHERE id=?", (mfe, mae, last, sig["id"]))
+            db.execute("UPDATE signals SET mfe=?, mae=?, last_checked_ts=?, track_gaps=? WHERE id=?",
+                       (mfe, mae, end, track_gaps, sig["id"]))
 
 
 def label_matured(cfg: Config, db: DB) -> int:

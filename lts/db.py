@@ -103,7 +103,8 @@ CREATE TABLE IF NOT EXISTS signals (
     ret_r REAL, ret_margin REAL,
     mfe REAL, mae REAL,
     last_checked_ts INTEGER,
-    notes TEXT
+    notes TEXT,
+    track_gaps TEXT                    -- JSON [[from, to], ...] stretches of 1m candles the tracker could not fetch
 );
 CREATE INDEX IF NOT EXISTS idx_sig_status ON signals (status);
 CREATE TABLE IF NOT EXISTS models (
@@ -151,6 +152,9 @@ class DB:
         if cols and "kind" not in cols:
             self.conn.execute("ALTER TABLE signals ADD COLUMN kind TEXT")
             self.conn.execute("UPDATE signals SET kind='momentum' WHERE kind IS NULL")
+            self.conn.commit()
+        if cols and "track_gaps" not in cols:
+            self.conn.execute("ALTER TABLE signals ADD COLUMN track_gaps TEXT")
             self.conn.commit()
 
     def close(self) -> None:

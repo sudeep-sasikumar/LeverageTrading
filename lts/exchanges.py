@@ -13,6 +13,7 @@ from collections import deque
 import aiohttp
 
 log = logging.getLogger("lts.exchanges")
+INTERVAL_MS = {"1m": 60_000, "5m": 300_000, "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
 
 
 class ApiError(Exception):
@@ -154,6 +155,23 @@ class Binance:
                                   limiter=self.w, weight=weight)
         return _kline_rows(raw)
 
+    async def klines_range(self, symbol: str, interval: str, start: int, end: int, max_pages: int = 40) -> list[tuple]:
+        """Every candle with open time in [start, end), paging forward 1,000 at a time."""
+        step = INTERVAL_MS[interval]
+        out, t = [], start
+        for _ in range(max_pages):
+            if t >= end:
+                break
+            rows = await self.klines(symbol, interval, start=t, end=end - 1, limit=1000)
+            rows = [r for r in rows if start <= r[0] < end]
+            if not rows:
+                break
+            out += rows
+            t = rows[-1][0] + step
+            if len(rows) < 1000:
+                break
+        return sorted({r[0]: r for r in out}.values())
+
     async def open_interest(self, symbol: str) -> tuple[int, float] | None:
         r = await self.http.get("/fapi/v1/openInterest", {"symbol": symbol}, limiter=self.w, weight=1)
         return (int(r["time"]), float(r["openInterest"]))
@@ -231,6 +249,25 @@ class Weex:
         if end is not None:
             rows = [r for r in rows if r[0] <= end]
         return rows
+
+    async def klines_range(self, symbol: str, interval: str, start: int, end: int, max_pages: int = 120) -> list[tuple]:
+        """Every candle with open time in [start, end). /market/klines ignores start/end times, so this pages
+        BACKWARDS through /market/historyKlines (newest first, at most 100 candles a request; checked 25 Nov 2026)."""
+        out, e = [], end
+        for _ in range(max_pages):
+            if e <= start:
+                break
+            raw = await self.http.get("/capi/v3/market/historyKlines",
+                                      {"symbol": symbol, "interval": interval, "startTime": start, "endTime": e - 1,
+                                       "limit": 100}, limiter=self.w, weight=5)
+            rows = [r for r in _kline_rows(raw if isinstance(raw, list) else []) if start <= r[0] < end]
+            if not rows:
+                break
+            out += rows
+            e = rows[0][0]
+            if len(rows) < 100:
+                break
+        return sorted({r[0]: r for r in out}.values())
 
     async def open_interest(self, symbol: str) -> tuple[int, float] | None:
         r = await self.http.get("/capi/v3/market/openInterest", {"symbol": symbol}, limiter=self.w, weight=10)
