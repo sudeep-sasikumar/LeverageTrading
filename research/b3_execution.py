@@ -27,7 +27,8 @@ PRE = 15                                          # minutes of candles before th
 out("Weex rules (official API docs, read 25 Nov 2026, www.weex.com/api-doc/catalog/core-trading-futures/api/rest-api/"
     "transaction-api): POST /capi/v3/order takes type=LIMIT, reduceOnly=true and timeInForce GTC/IOC/FOK/POST_ONLY;")
 out("  position TP/SL (/capi/v3/placeTpSlOrder) executes at market when executePrice is 0 or omitted, or as a limit when"
-    " it is positive (full-position TP/SL: market only). Exchange info: makerFeeRate 0.0002, takerFeeRate 0.0008.")
+    " it is positive (full-position TP/SL: market only). Exchange info lists the same maker/taker rates as config.trade: "
+    f"{F.maker:.4%} / {F.taker:.4%}.")
 out("  NOT documented: whether a filled reduce-only limit close is charged the maker rate. Evidence below = the trader's fills.")
 
 # ---- the trader's fills ----------------------------------------------------------------------------------------------
