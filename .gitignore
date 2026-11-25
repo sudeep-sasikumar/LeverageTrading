@@ -10,3 +10,4 @@ logs/
 *.sqlite-shm
 config.local.yaml
 .claude/
+research_data/

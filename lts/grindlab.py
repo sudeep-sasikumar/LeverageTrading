@@ -382,11 +382,12 @@ def decision_row(sym: str, side: int, i: int, k: pd.DataFrame, f: pd.DataFrame, 
     return row
 
 
-def build(db: DB, days: float = 120.0) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """(early-grind decisions with factors and outcomes, hindsight grind episodes). One coin at a time."""
+def build(db: DB, days: float = 120.0, now: int | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(early-grind decisions with factors and outcomes, hindsight grind episodes). One coin at a time.
+    `now` fixes the end of the window (research reproducibility); default: the current time."""
     ensure_schema(db)
     t0 = time.time()
-    now = int(time.time() * 1000)
+    now = int(now if now is not None else time.time() * 1000)
     since = now - int((days + 31) * DAY)
     start_ts = now - int(days * DAY)
     ctx = load_context(db, since)
