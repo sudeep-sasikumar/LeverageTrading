@@ -78,3 +78,28 @@ def test_dashboard_shows_scan_timings(tmp_path):
     assert snap["heartbeat"]["collect_s"] == 8.1 and snap["grind_heartbeat"]["grind_s"] == 21.5
     html = (ROOT / "lts" / "web" / "index.html").read_text(encoding="utf-8")
     assert "momentum scan" in html and "grind scan" in html
+
+
+def test_retrained_grind_model_must_beat_the_seed_on_the_same_unseen_months(tmp_path, monkeypatch):
+    """Review item 17: a model trained on the server's shorter history replaces the year-trained seed only if
+    it does better on months neither model saw."""
+    import joblib
+    import pandas as pd
+    from sklearn.linear_model import LogisticRegression
+    from lts import grindsignal as GS
+    rng = np.random.default_rng(0)
+    n = 4000
+    f = rng.normal(size=n)
+    net = np.where(f > 0, 0.01, -0.01)                         # high f wins
+    seed = LogisticRegression().fit(f[:, None], (f < 0).astype(int))     # a seed that prefers LOW f (bad)
+    joblib.dump({"model": seed, "features": ["sh_f"], "data_to": 0}, tmp_path / "seed.joblib")
+    monkeypatch.setattr(GS, "SEED_PATH", tmp_path / "seed.joblib")
+    label = GS.plan_label(Config().grindsignal.plans[1])
+    df = pd.DataFrame({"ts": np.arange(n) * 3_600_000 + 1, "sh_f": f, label: net})
+    good = {"plans": Config().grindsignal.plans, "primary": 1, "oos": pd.DataFrame({"ts": df.ts, "p": f, "net": net})}
+    v = GS.beats_seed(good, df, 0.2)
+    assert v["replace"] and v["new_net"] > v["seed_net"]
+    bad = dict(good, oos=pd.DataFrame({"ts": df.ts, "p": -f, "net": net}))
+    assert not GS.beats_seed(bad, df, 0.2)["replace"]
+    few = dict(good, oos=good["oos"].head(100))
+    assert not GS.beats_seed(few, df, 0.2)["replace"]
