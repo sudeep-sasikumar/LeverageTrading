@@ -103,3 +103,20 @@ def test_retrained_grind_model_must_beat_the_seed_on_the_same_unseen_months(tmp_
     assert not GS.beats_seed(bad, df, 0.2)["replace"]
     few = dict(good, oos=good["oos"].head(100))
     assert not GS.beats_seed(few, df, 0.2)["replace"]
+
+
+def test_dashboard_shows_the_signal_policy(tmp_path, monkeypatch):
+    import json
+    import lts.dashboard as D
+    from lts import grindsignal as GS
+    plans = {GS.plan_name(pl): {"n": 539, "net": -0.0008, "se_day": 0.001, "win": 0.38} for pl in Config().grindsignal.plans}
+    h = tmp_path / "h.json"
+    h.write_text(json.dumps({"rules": {"steady/hour_close_first": {"plans": plans, "passed_bar": False}}}), encoding="utf-8")
+    monkeypatch.setattr(GS, "HISTORY_PATH", h)
+    db = DB(tmp_path / "p.sqlite")
+    db.set("phase", "running")
+    sp = D.snapshot(tmp_path / "p.sqlite")["signal_policy"]
+    assert sp["rule"] == "steady/hour_close_first" and not sp["sending"] and abs(sp["expected"]["net"] + 0.0008) < 1e-12
+    assert sp["expected"]["lo"] < sp["expected"]["net"] < sp["expected"]["hi"] and sp["paper_trades"] == 0
+    html = (ROOT / "lts" / "web" / "index.html").read_text(encoding="utf-8")
+    assert "Signal policy (expected net > 0 to send)" in html

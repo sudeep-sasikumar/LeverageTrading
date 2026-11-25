@@ -227,6 +227,12 @@ function render(d) {
     (() => { const rl = (d.rule_live || {}).selected || {}, ot = (d.rule_live || {}).others || {};
       return tile("Steady-grind rule, live (5x)", rl.n ? `${rl.won}/${rl.n} won` : "–",
         rl.n ? `${signed(rl.net * 100, 2, "%")}/trade · other grinds ${ot.n ? Math.round(100 * ot.won / ot.n) + "% won" : "–"}` : "decided grinds that met the rule, last 3 days"); })(),
+    (() => { const sp = d.signal_policy || {}, ex = sp.expected;
+      const val = !sp.rule ? "–" : sp.sending ? "sending" : "not sending";
+      const sub = !sp.rule ? "" : (ex ? `${sp.rule}: expected ${signed(ex.net * 100, 2, "%")}/trade after fees` +
+        (ex.lo != null ? ` (90% ${signed(ex.lo * 100, 2, "%")} to ${signed(ex.hi * 100, 2, "%")})` : "") : `${sp.rule}: no tested record`) +
+        ` · live gate: bar ${sp.passed_bar ? "passed" : "not passed"}, paper ${sp.paper_trades}/${sp.min_paper_trades}`;
+      return tile("Signal policy (expected net > 0 to send)", val, sub); })(),
     statTile("Momentum setup (all)", st.momentum), statTile("Grind setup (all, paper)", st.grind),
     tile("Candidates scanned 24h", d.data ? d.data.candidates_24h : "–", d.data ? `${d.data.labelled.toLocaleString()} labelled in total` : ""),
   ].join("");

@@ -175,6 +175,23 @@ def anatomy_summary(rows: list[dict]) -> dict:
     return {"n": {g: len(v) for g, v in groups.items()}, "medians": med, "reversals": rev[:300]}
 
 
+def signal_policy(q) -> dict:
+    """Part C: the configured rule's expected net after costs (90% interval), whether it is sending, and the
+    go-live gate's status (docs/DESIGN.md section 28)."""
+    from .gate import expected_net, passed_bar, rule_version
+    from .grindsignal import rule_key
+    gs = Config().grindsignal
+    ex = expected_net(gs)
+    try:
+        n = q("SELECT COUNT(*) AS n FROM signals WHERE kind='grindsig' AND model_version=? AND grade='P' "
+              "AND status IN ('tp','sl','time')", (rule_version(gs),))[0]["n"]
+    except Exception:
+        n = 0
+    return {"rule": rule_key(gs), "expected": ex, "require_positive_ev": gs.require_positive_ev,
+            "sending": (not gs.require_positive_ev) or bool(ex and ex["net"] > 0), "live": gs.live,
+            "passed_bar": passed_bar(gs), "paper_trades": int(n), "min_paper_trades": gs.min_live_paper_trades}
+
+
 def snapshot(db_path: Path) -> dict:
     """Everything the page shows, in one read-only pass."""
     now = int(time.time() * 1000)
@@ -195,6 +212,7 @@ def snapshot(db_path: Path) -> dict:
         hb_ts = (out["heartbeat"] or {}).get("ts", 0)
         out["error"] = err if err and err.get("ts", 0) > hb_ts else None     # cleared by the next good scan
         out["last_train_day"] = kv.get("last_train_day")
+        out["signal_policy"] = signal_policy(q)
 
         last_bar = q("SELECT MAX(ts) AS t FROM klines WHERE symbol='BTCUSDT'")[0]["t"]
         out["data"] = {
