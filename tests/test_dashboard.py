@@ -78,9 +78,14 @@ def test_login_is_required_and_rate_limited(tmp_path):
             assert r.headers["Cache-Control"] == "no-store"
         app = build_app(cfg_for(tmp_path), password="correct horse", need_login=True, cookie_secure=False)
         async with TestClient(TestServer(app)) as c:
-            for _ in range(10):
-                assert (await c.post("/login", json={"password": "guess"})).status == 401
-            assert (await c.post("/login", json={"password": "correct horse"})).status == 429   # locked out
+            a, b = {"X-Forwarded-For": "203.0.113.7"}, {"X-Forwarded-For": "198.51.100.9"}
+            for _ in range(5):                                            # 5 failed attempts from one IP ...
+                assert (await c.post("/login", json={"password": "guess"}, headers=a)).status == 401
+            assert (await c.post("/login", json={"password": "correct horse"}, headers=a)).status == 429
+            assert (await c.post("/login", json={"password": "correct horse"}, headers=b)).status == 200  # other IP
+            # a forged leading X-Forwarded-For entry does not dodge the limit: the last entry (Traefik's) counts
+            forged = {"X-Forwarded-For": "1.2.3.4, 203.0.113.7"}
+            assert (await c.post("/login", json={"password": "correct horse"}, headers=forged)).status == 429
 
     asyncio.run(go())
 

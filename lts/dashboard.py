@@ -340,11 +340,25 @@ def snapshot(db_path: Path) -> dict:
 
 
 # ---- server -----------------------------------------------------------------
+LOGIN_WINDOW_S = 900          # failed logins are counted over 15 minutes
+LOGIN_MAX_PER_IP = 5          # per client IP
+LOGIN_MAX_TOTAL = 30          # across all IPs (a cap even if the forwarded address is forged)
+
+
+def client_ip(request) -> str:
+    """The client address. Behind Traefik the real client is the LAST X-Forwarded-For entry (the one Traefik
+    appended itself); earlier entries are whatever the client sent."""
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff.strip():
+        return xff.split(",")[-1].strip()
+    return request.remote or "?"
+
+
 def build_app(cfg: Config, password: str, need_login: bool, cookie_secure: bool) -> web.Application:
     db_path = cfg.path(cfg.storage.db_path)
     secret = _secret(db_path.parent)
     cache: dict = {"t": 0.0, "data": None}
-    fails: list[float] = []
+    fails: dict[str, list[float]] = {}                  # failed logins per client IP (last 15 minutes)
 
     @web.middleware
     async def auth(request: web.Request, handler):
@@ -363,15 +377,19 @@ def build_app(cfg: Config, password: str, need_login: bool, cookie_secure: bool)
 
     async def login(request: web.Request):
         now = time.time()
-        fails[:] = [t for t in fails if now - t < 900]
-        if len(fails) >= 10:
+        ip = client_ip(request)
+        for k in list(fails):
+            fails[k] = [t for t in fails[k] if now - t < LOGIN_WINDOW_S]
+            if not fails[k]:
+                del fails[k]
+        if len(fails.get(ip, [])) >= LOGIN_MAX_PER_IP or sum(map(len, fails.values())) >= LOGIN_MAX_TOTAL:
             return web.json_response({"error": "too many attempts - wait 15 minutes"}, status=429)
         try:
             given = str((await request.json()).get("password", ""))
         except Exception:
             given = ""
         if not (password and hmac.compare_digest(given.encode(), password.encode())):
-            fails.append(now)
+            fails.setdefault(ip, []).append(now)
             return web.json_response({"error": "wrong password"}, status=401)
         resp = web.json_response({"ok": True})
         resp.set_cookie(COOKIE, make_token(secret), max_age=SESSION_DAYS * 86400, httponly=True,
