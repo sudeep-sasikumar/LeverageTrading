@@ -333,7 +333,9 @@ def train_and_maybe_promote(cfg: Config, db: DB, force: bool = False) -> dict:
         return res
     bundle, m = res["bundle"], res["metrics"]
     # forward evidence: how the most recent signals (paper or real) actually did
+    # only the momentum track's own signals: grind signals (a different setup and plan) must not promote or demote it
     recent = db.query("SELECT ret_r FROM signals WHERE status IN ('tp','sl','time') AND ret_r IS NOT NULL "
+                      "AND COALESCE(kind, 'momentum') = 'momentum' "
                       "ORDER BY exit_ts DESC LIMIT ?", (max(cfg.learn.min_paper_signals, 1) * 2,))
     m["paper"] = {"n": len(recent), "avg_r": float(np.mean([r["ret_r"] for r in recent])) if recent else 0.0}
     fails = _gates(cfg, m)

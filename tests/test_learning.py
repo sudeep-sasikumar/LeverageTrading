@@ -98,3 +98,16 @@ def test_noise_is_not_promoted_and_only_yields_paper_signals(tmp_path):
     state = RiskState(cfg, db, T0)
     grade = engine._grade({"p": 1.0, "score": 9.9, "rule_score": 0.0}, shadow, state, T0)
     assert grade == "P"                                    # never a real grade from an unvalidated model
+
+
+from pathlib import Path as _Path
+ROOT = _Path(__file__).resolve().parent.parent
+
+
+# review item 7: the momentum learner is judged on momentum signals only -------------------------------------
+def test_momentum_forward_record_ignores_grind_signals():
+    src = (ROOT / "lts" / "learner.py").read_text(encoding="utf-8")
+    q = src[src.index("recent = db.query("):src.index('m["paper"] =')]
+    assert "COALESCE(kind, 'momentum') = 'momentum'" in q
+
+
