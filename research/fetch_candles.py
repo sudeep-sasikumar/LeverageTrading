@@ -12,8 +12,8 @@ import aiohttp
 
 from research.common import MIN, candles_db
 
-WEIGHT_PER_MIN = 1000
-WORKERS = 4
+WEIGHT_PER_MIN = 1800              # Binance allows 2,400 a minute per IP
+WORKERS = 6
 LIMIT = 499
 STEP = {"5m": 5 * MIN, "1m": MIN}
 TABLE = {"5m": "k5", "1m": "k1"}

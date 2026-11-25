@@ -1,0 +1,13 @@
+63,528 events; with a full 24h of 5-minute candles: 63,528 (published analysis: 63,528 with paths)
+R3 (all-day steady): 539 events (published 539)
+  10x +1.00% / -0.50%: n 539 won 34.3% net -0.211% per trade, t -5.33, months positive 1/14   (published: won 34.3%, -0.211%, 1/14)
+  5x +2.00% / -1.00%: n 539 won 38.0% net -0.084% per trade, t -1.30, months positive 5/14   (published: won 38.0%, -0.084%, 5/14)
+  3x +3.33% / -1.00%: n 539 won 26.3% net -0.089% per trade, t -1.77, months positive 7/14   (published: won 26.3%, -0.089%, 7/14)
+  2x +5.00% / -0.75%: n 539 won 15.2% net -0.113% per trade, t -1.92, months positive 6/14   (published: won 15.2%, -0.113%, 6/14)
+  5x R3 first 7 months: n 274 won 36.5% net -0.131%
+  5x R3 last 7 months: n 265 won 39.6% net -0.035%
+  5x all grinds first 7 months: n 34,941 won 33.7% net -0.216%
+  5x all grinds last 7 months: n 28,587 won 32.3% net -0.257%
+  (published: R3 36.5% / -0.11% and 39.6% / -0.01%; all grinds 33.7% / -0.20% and 32.3% / -0.24%)
+  pass bar (R units, Holm over the 10 rules): not passed: mean -0.084 < +0.1; corrected t -inf < 3.0; months positive 36% < 60%
+wrote steady_history.json (rule steady/hour_close_first)

@@ -48,6 +48,52 @@ def candles_db() -> sqlite3.Connection:
     return c
 
 
+def load_paths(ev, post_bars: int = 289, pre_bars: int = 0, table: str = "k5", step: int = BAR):
+    """5-minute (or 1-minute) candles around each event (columns symbol, ts) from candles.sqlite.
+    Returns (post, pre): post (n, post_bars, 4) o,h,l,c from ts on; pre (n, pre_bars, 6) o,h,l,c,qv,tbqv before ts.
+    Missing candles are NaN."""
+    import numpy as np
+    import pandas as pd
+    conn = candles_db()
+    post = np.full((len(ev), post_bars, 4), np.nan, np.float32)
+    pre = np.full((len(ev), pre_bars, 6), np.nan, np.float32)
+    ev = ev.reset_index(drop=True)
+    for sym, g in ev.groupby("symbol"):
+        lo, hi = int(g.ts.min()) - pre_bars * step, int(g.ts.max()) + post_bars * step
+        k = pd.read_sql_query(f"SELECT ts,o,h,l,c,qv,tbqv FROM {table} WHERE symbol=? AND ts>=? AND ts<? ORDER BY ts",
+                              conn, params=(sym, lo, hi))
+        if not len(k):
+            continue
+        kts = k.ts.to_numpy()
+        vals = k[["o", "h", "l", "c", "qv", "tbqv"]].to_numpy(np.float32)
+        for i, t in zip(g.index, g.ts.to_numpy()):
+            a = np.searchsorted(kts, t)
+            b = np.searchsorted(kts, t + post_bars * step)
+            idx = ((kts[a:b] - t) // step).astype(int)
+            post[i, idx] = vals[a:b, :4]
+            if pre_bars:
+                a2 = np.searchsorted(kts, t - pre_bars * step)
+                idx2 = ((kts[a2:a] - (t - pre_bars * step)) // step).astype(int)
+                pre[i, idx2] = vals[a2:a]
+    conn.close()
+    return post, pre
+
+
+def r3_mask(a):
+    """DESIGN.md section 25's R3 (all-day steady grind) on the event table's side-aligned factors."""
+    return ((a.r_24h >= 0.08) & (a.r2_24h >= 0.8) & (a.hours_with24 >= 15) & (a.r2_6h >= 0.9) & (a.hours_with6 >= 5)
+            & (a.big6 <= 0.35)).to_numpy()
+
+
+def halves(ts):
+    """The year studies' split: first half of the calendar months (discovery) / second half (confirmation)."""
+    import numpy as np
+    import pandas as pd
+    month = pd.to_datetime(ts, unit="ms").strftime("%Y-%m").to_numpy()
+    months = sorted(set(month))
+    return np.isin(month, months[:len(months) // 2]), month
+
+
 class Tee:
     """Print to the console and to a results file at the same time."""
 

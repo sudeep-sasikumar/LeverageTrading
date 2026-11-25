@@ -1,0 +1,72 @@
+{
+ "generated_by": "research/reproduce_r3.py",
+ "generated": "2026-11-25 23:11 UTC",
+ "fees": {
+  "taker": 0.0008,
+  "maker": 0.0002,
+  "slippage": 0.0004
+ },
+ "rules": {
+  "steady/hour_close_first": {
+   "source": "steady rule checked at the first hour-close detection per 12h, past year (DESIGN.md section 25)",
+   "data": "63,528 early grinds 22 Oct 2025 - 16 Nov 2026, 5m candles, 24h, stop first, config.trade costs",
+   "plans": {
+    "10x +1.00% / -0.50%": {
+     "n": 539,
+     "n_days": 256,
+     "win": 0.3432282003710575,
+     "net": -0.002114285714285715,
+     "se_day": 0.0003998909628426031,
+     "t_day": -5.334644791227344,
+     "months_pos": 0.07142857142857142,
+     "n_months": 14,
+     "net_r": -0.4228571428571429,
+     "per_day": 1.3882807469414038
+    },
+    "5x +2.00% / -1.00%": {
+     "n": 539,
+     "n_days": 256,
+     "win": 0.3803339517625232,
+     "net": -0.0008378478664192941,
+     "se_day": 0.0007840710935671485,
+     "t_day": -1.300442563745145,
+     "months_pos": 0.35714285714285715,
+     "n_months": 14,
+     "net_r": -0.0837847866419294,
+     "per_day": 1.3882807469414038
+    },
+    "3x +3.33% / -1.00%": {
+     "n": 539,
+     "n_days": 256,
+     "win": 0.2634508348794063,
+     "net": -0.000887198515769944,
+     "se_day": 0.0009827886743995924,
+     "t_day": -1.7683051830427936,
+     "months_pos": 0.5,
+     "n_months": 14,
+     "net_r": -0.08871985157699451,
+     "per_day": 1.3882807469414038
+    },
+    "2x +5.00% / -0.75%": {
+     "n": 539,
+     "n_days": 256,
+     "win": 0.15213358070500926,
+     "net": -0.0011269952678688612,
+     "se_day": 0.0010076758173557798,
+     "t_day": -1.9167158725049278,
+     "months_pos": 0.42857142857142855,
+     "n_months": 14,
+     "net_r": -0.15026603571584832,
+     "per_day": 1.3882807469414038
+    }
+   },
+   "passed_bar": false,
+   "bar_failures": [
+    "mean -0.084 < +0.1",
+    "corrected t -inf < 3.0",
+    "months positive 36% < 60%"
+   ],
+   "script": "research/reproduce_r3.py"
+  }
+ }
+}
