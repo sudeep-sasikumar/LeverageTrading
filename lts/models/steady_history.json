@@ -67,6 +67,28 @@
     "months positive 36% < 60%"
    ],
    "script": "research/reproduce_r3.py"
+  },
+  "steady/rolling_5m": {
+   "source": "steady rule checked every 5 minutes with re-sends, past year replay (DESIGN.md section 28)",
+   "data": "research/parity.py variant (a)",
+   "script": "research/parity.py",
+   "plans": {
+    "5x +2.00% / -1.00%": {
+     "n": 10469,
+     "n_days": 390,
+     "win": 0.3426306237462986,
+     "net": -0.0019824880820699772,
+     "se_day": 0.00017170472893644436,
+     "t_day": -16.118147376746393,
+     "months_pos": 0.07142857142857142,
+     "n_months": 14,
+     "per_day": 26.85817618186515
+    }
+   },
+   "passed_bar": false,
+   "bar_failures": [
+    "not tested against the bar (descriptive replay)"
+   ]
   }
  }
 }

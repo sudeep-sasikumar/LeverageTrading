@@ -1,0 +1,25 @@
+P1 live-parity replay - run 2026-11-26 07:40 UTC
+  phase 1: 0/519 coins, 5,006 detections, 22s
+  phase 1: 50/519 coins, 166,391 detections, 115s
+  phase 1: 100/519 coins, 315,082 detections, 191s
+  phase 1: 150/519 coins, 449,607 detections, 333s
+  phase 1: 200/519 coins, 615,927 detections, 578s
+  phase 1: 250/519 coins, 774,822 detections, 853s
+  phase 1: 300/519 coins, 935,942 detections, 1109s
+  phase 1: 350/519 coins, 1,119,397 detections, 1356s
+  phase 1: 400/519 coins, 1,269,204 detections, 1497s
+  phase 1: 450/519 coins, 1,417,764 detections, 1737s
+  phase 1: 500/519 coins, 1,586,147 detections, 1988s
+1,652,826 early-grind detections at 5-minute ends (44,698 meeting R3) in fetched windows
+
+Year, 5x +2% / -1%, 24h (live behaviour vs the year test):
+  (a) rolling 5m + re-sends (live until 25 Nov)        n 10469 (26.9/day) won 34.3% net -0.198% t -16.12 months+ 7% repeats<24h 37%
+  (b) (a) + level-in-way skip (live since 19 Nov)      n  7148 (18.4/day) won 35.2% net -0.169% t -11.79 months+ 7% repeats<24h 32%
+  (c1) hour_close_first, no limits (= the year R3 test) n   539 (1.4/day) won 38.0% net -0.084% t -1.30 months+ 36% repeats<24h 1%
+  (c2) hour_close_first + today's limits               n   399 (1.0/day) won 39.1% net -0.051% t -0.82 months+ 50% repeats<24h 1%
+
+Coverage check of the 5-minute fetch (13 Oct - 16 Nov 2026, every coin, no prefilter):
+  R3 detections at 5-minute ends: 4,098; outside the fetched windows: 0 (0.00%)
+  live-code check: 300 random detections recomputed with _rolling_hours + hourly_shape (as scan_now): 300 give the same early-grind and R3 answer
+wrote steady_history.json (rule steady/rolling_5m)
+done in 45 min
