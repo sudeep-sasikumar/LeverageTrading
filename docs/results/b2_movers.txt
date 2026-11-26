@@ -1,0 +1,43 @@
+hour-close early-grind detections: 146,054 (519 coins)
+big movers (UTC day >= 15% open to close, $5M+ volume): 4,309 coin-days (2,413 up, 1,896 down)
+
+flagged by the hour-close logic during the day: 3,632 of 4,309 (84%)
+  up   n  2046: hour of the day flagged (median) 9h; move still ahead to the day's close: median 56%, mean 47%; to the day's extreme: median 67%; flagged with <= 0% still ahead: 14%
+  down n  1586: hour of the day flagged (median) 8h; move still ahead to the day's close: median 44%, mean 42%; to the day's extreme: median 51%; flagged with <= 0% still ahead: 13%
+  all  n  3632: hour of the day flagged (median) 9h; move still ahead to the day's close: median 50%, mean 45%; to the day's extreme: median 61%; flagged with <= 0% still ahead: 13%
+lookalikes (same hour close, same direction, own day < 15%): 28,068 (7.7 per mover flag); their own day moved a median +4.8% their way
+5m: 0 ranges to fetch, about 0 requests (~0 min at 1800 weight/min)
+1m: 0 ranges to fetch, about 0 requests (~0 min at 1800 weight/min)
+
+Plans from the flag (entry at the next 5-minute open; B1 plans on hourly candles from the next hour open):
+  movers (hindsight group):
+    5x +2%/-1%: n 3,632 won 41.1% net +0.010% t -0.3 months+ 31%
+    5% stop 2R 72h: n 3,599 won 63.8% +0.860R t +28.4 months+ 100%
+    5% stop 3R 72h: n 3,599 won 57.2% +1.184R t +29.2 months+ 100%
+    5% stop 4R 72h: n 3,599 won 51.7% +1.337R t +27.9 months+ 100%
+      5x, long     : n 2,046 won 42.0% net +0.036% t -1.1
+      5x, short    : n 1,586 won 40.0% net -0.023% t +0.2
+      5x, regime + : n 452 won 44.5% net +0.112% t +1.3
+      5x, regime - : n 3,180 won 40.7% net -0.004% t -0.6
+  lookalikes:
+    5x +2%/-1%: n 28,068 won 33.7% net -0.217% t -14.6 months+ 0%
+    5% stop 2R 72h: n 27,708 won 36.6% -0.073R t -7.5 months+ 31%
+    5% stop 3R 72h: n 27,708 won 32.3% -0.119R t -8.6 months+ 15%
+    5% stop 4R 72h: n 27,708 won 30.8% -0.158R t -9.4 months+ 8%
+      5x, long     : n 13,827 won 34.1% net -0.204% t -12.0
+      5x, short    : n 14,241 won 33.3% net -0.229% t -10.4
+      5x, regime + : n 3,807 won 35.7% net -0.154% t -5.0
+      5x, regime - : n 24,261 won 33.3% net -0.227% t -13.7
+  both (what the logic flags):
+    5x +2%/-1%: n 31,700 won 34.5% net -0.191% t -13.5 months+ 0%
+    5% stop 2R 72h: n 31,307 won 39.7% +0.034R t -0.3 months+ 38%
+    5% stop 3R 72h: n 31,307 won 35.2% +0.031R t +0.2 months+ 46%
+    5% stop 4R 72h: n 31,307 won 33.2% +0.014R t +0.1 months+ 38%
+      5x, long     : n 15,873 won 35.1% net -0.173% t -11.7
+      5x, short    : n 15,827 won 33.9% net -0.209% t -9.6
+      5x, regime + : n 4,259 won 36.7% net -0.126% t -4.3
+      5x, regime - : n 27,441 won 34.2% net -0.201% t -12.6
+
+Live 5-minute logic on the same mover days: flags 3,632 of them; it flags a median 95 minutes earlier than the hour close (mean 229; 93% earlier, 7% same time)
+
+Stop-first check, 5x +2%/-1%, 600 sampled flags with both 1m and 5m candles: won 38.5% on 5m vs 39.0% on 1m candles (change +0.5 points); trades counted as stops on 5m that 1m shows reached the target first: 3; net per trade change about +0.015%

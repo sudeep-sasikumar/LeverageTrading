@@ -1,0 +1,92 @@
+A. 63,528 early-grind moments
+B. 282,438 coin-hours near the steady rule; C. 6,420 big-mover coin-days (519 coins)
+5m: 17119 ranges to fetch, about 57,184 requests (~64 min at 1800 weight/min)
+  1,000/57,184 requests, 1 min, ~64 min left
+  2,000/57,184 requests, 2 min, ~63 min left
+  3,000/57,184 requests, 3 min, ~61 min left
+  4,000/57,184 requests, 5 min, ~61 min left
+  5,000/57,184 requests, 6 min, ~60 min left
+  6,000/57,184 requests, 7 min, ~59 min left
+  7,000/57,184 requests, 8 min, ~58 min left
+  8,000/57,184 requests, 9 min, ~57 min left
+  9,000/57,184 requests, 10 min, ~55 min left
+  10,000/57,184 requests, 11 min, ~54 min left
+  11,000/57,184 requests, 13 min, ~53 min left
+  12,000/57,184 requests, 14 min, ~52 min left
+  13,000/57,184 requests, 15 min, ~50 min left
+  14,000/57,184 requests, 16 min, ~49 min left
+  15,000/57,184 requests, 17 min, ~48 min left
+  16,000/57,184 requests, 18 min, ~47 min left
+  17,000/57,184 requests, 19 min, ~46 min left
+  18,000/57,184 requests, 20 min, ~45 min left
+  19,000/57,184 requests, 22 min, ~43 min left
+  20,000/57,184 requests, 23 min, ~42 min left
+  21,000/57,184 requests, 24 min, ~41 min left
+  22,000/57,184 requests, 25 min, ~40 min left
+  23,000/57,184 requests, 26 min, ~39 min left
+  24,000/57,184 requests, 27 min, ~38 min left
+rate limited (429); pausing 12s
+rate limited (429); pausing 12s
+rate limited (429); pausing 12s
+rate limited (429); pausing 11s
+rate limited (429); pausing 11s
+  25,000/57,184 requests, 29 min, ~38 min left
+rate limited (429); pausing 7s
+rate limited (429); pausing 7s
+rate limited (429); pausing 7s
+rate limited (429); pausing 7s
+rate limited (429); pausing 6s
+rate limited (429); pausing 6s
+  26,000/57,184 requests, 31 min, ~38 min left
+rate limited (429); pausing 1s
+rate limited (429); pausing 1s
+rate limited (429); pausing 1s
+rate limited (429); pausing 1s
+rate limited (429); pausing 1s
+  27,000/57,184 requests, 34 min, ~37 min left
+rate limited (429); pausing 3s
+rate limited (429); pausing 3s
+rate limited (429); pausing 3s
+rate limited (429); pausing 3s
+rate limited (429); pausing 3s
+rate limited (429); pausing 2s
+  28,000/57,184 requests, 36 min, ~37 min left
+rate limited (429); pausing 4s
+rate limited (429); pausing 4s
+rate limited (429); pausing 4s
+rate limited (429); pausing 4s
+rate limited (429); pausing 4s
+rate limited (429); pausing 4s
+  29,000/57,184 requests, 38 min, ~37 min left
+rate limited (429); pausing 1s
+rate limited (429); pausing 1s
+rate limited (429); pausing 1s
+  30,000/57,184 requests, 40 min, ~36 min left
+  31,000/57,184 requests, 41 min, ~35 min left
+  32,000/57,184 requests, 42 min, ~33 min left
+  33,000/57,184 requests, 43 min, ~32 min left
+  34,000/57,184 requests, 44 min, ~30 min left
+  35,000/57,184 requests, 45 min, ~29 min left
+  36,000/57,184 requests, 47 min, ~27 min left
+  37,000/57,184 requests, 48 min, ~26 min left
+  38,000/57,184 requests, 49 min, ~25 min left
+  39,000/57,184 requests, 50 min, ~23 min left
+  40,000/57,184 requests, 51 min, ~22 min left
+  41,000/57,184 requests, 52 min, ~21 min left
+  42,000/57,184 requests, 53 min, ~19 min left
+  43,000/57,184 requests, 54 min, ~18 min left
+  44,000/57,184 requests, 56 min, ~17 min left
+  45,000/57,184 requests, 57 min, ~15 min left
+  46,000/57,184 requests, 58 min, ~14 min left
+  47,000/57,184 requests, 59 min, ~13 min left
+  48,000/57,184 requests, 60 min, ~11 min left
+  49,000/57,184 requests, 61 min, ~10 min left
+  50,000/57,184 requests, 62 min, ~9 min left
+  51,000/57,184 requests, 63 min, ~8 min left
+  52,000/57,184 requests, 64 min, ~6 min left
+  53,000/57,184 requests, 66 min, ~5 min left
+  54,000/57,184 requests, 67 min, ~4 min left
+  55,000/57,184 requests, 68 min, ~3 min left
+  56,000/57,184 requests, 69 min, ~1 min left
+  57,000/57,184 requests, 70 min, ~0 min left
+5m: done, 57,130 requests in 70 min

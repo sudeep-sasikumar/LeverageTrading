@@ -1023,3 +1023,26 @@ pre-registered in [HYPOTHESES.md](HYPOTHESES.md) before it was run; every number
 - The nightly grind-model retrain keeps the year-trained seed unless the new model nets more on the same months
   neither model saw.
 - Dashboard login: 5 failed attempts per client IP per 15 minutes (it had a global limit of 10).
+
+### What the studies found (full tables: [results/REPORT.md](results/REPORT.md))
+
+- **Parity (the most important finding).** The year replayed with the live checking — every 5 minutes on
+  rolling hours, re-sent after exits — gave 26.9 calls a day, won 34.3%, −0.198% per trade, 37% repeats within
+  24h: the same as an unfiltered grind. The year's 38% only holds when the rule is checked once, at the first
+  hour-close detection (now the default): 1.4 a day, 38.0%, −0.084%; with the new limits 1.0 a day, 39.1%,
+  −0.051%. Still below the 40.8% that 5x +2% / −1% needs. The replay matched the live code on 300 of 300 checks.
+- **Reproduction.** The event table (63,528), section 25's R3 (539 grinds, 38.0%, −0.084%) and every cell of
+  section 27 were reproduced exactly; section 25's half-year nets were not (−0.131% / −0.035% against −0.11% /
+  −0.01%, probably an older fee convention; section 26 already shows −0.13% / −0.04%).
+- **B1 breakouts:** 0 of 576 variants passed; longs lost in every variant; best day-clustered t +1.02; breakout
+  timing was mostly worse than a random hour on the same coin.
+- **B2 big movers:** 84% of the ≥ 15% days were flagged, with about half the move still ahead, but each came with
+  7.7 lookalikes (the 5-minute logic flags them a median 95 minutes earlier than the hour close). Even the movers themselves (hindsight) only broke even at 5x +2% / −1% (41.1% won); a 5% stop pays
+  on movers but nets about zero on everything the logic flags. 1-minute candles moved the win rate by +0.5 points.
+- **B3 execution:** every one of the trader's fills (TP included) paid taker. A resting limit fills 95–96% but the
+  filled trades win 2–3 points less; limit in + maker TP trims the steady rule from −0.073% to −0.057% per trade.
+  Nothing passes.
+- **B4** runs from about 16 Jan 2027; no Binance → Weex lead at 1-minute resolution.
+
+**Consequence:** with `require_positive_ev` on, no grind signal is sent on this record. Every grind keeps being
+recorded and labelled, so the gate can open by itself if a future record turns positive.
