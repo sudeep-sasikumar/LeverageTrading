@@ -1,0 +1,44 @@
+Weex rules (official API docs, read 25 Nov 2026, www.weex.com/api-doc/catalog/core-trading-futures/api/rest-api/transaction-api): POST /capi/v3/order takes type=LIMIT, reduceOnly=true and timeInForce GTC/IOC/FOK/POST_ONLY;
+  position TP/SL (/capi/v3/placeTpSlOrder) executes at market when executePrice is 0 or omitted, or as a limit when it is positive (full-position TP/SL: market only). Exchange info lists the same maker/taker rates as config.trade: 0.0200% / 0.0800%.
+  NOT documented: whether a filled reduce-only limit close is charged the maker rate. Evidence below = the trader's fills.
+
+The trader's recorded trades (3): fee as a share of the filled notional
+  SKYUSDT    entry fee 0.0800%, TP fee 0.0800% (exit tp); entry vs signal price +0.044% (worse)
+  ASTERUSDT  entry fee 0.0800%, TP fee 0.0800% (exit tp); entry vs signal price -0.075% (better or equal)
+  MEGAUSDT   entry fee 0.0798%, TP fee 0.0798% (exit tp); entry vs signal price +0.000% (better or equal)
+  -> every fill, the position TP included, was charged the taker rate (0.08%); none was a maker fill.
+1m: 2475 ranges to fetch, about 7,571 requests (~8 min at 1800 weight/min)
+  1,000/7,571 requests, 1 min, ~7 min left
+  2,000/7,571 requests, 2 min, ~6 min left
+  3,000/7,571 requests, 3 min, ~5 min left
+  4,000/7,571 requests, 5 min, ~4 min left
+  5,000/7,571 requests, 6 min, ~3 min left
+  6,000/7,571 requests, 7 min, ~2 min left
+  7,000/7,571 requests, 8 min, ~1 min left
+1m: done, 7,571 requests in 9 min
+
+1-minute sample: 2,539 trades with candles (539 all-day steady, 2000 random)
+
+all-day steady (R3): 539 signals; limit filled 96%; won 38.4% of all (market entry) vs 35.3% of filled (adverse selection -3.1 points); winners missed because the limit never filled: 17
+  (a) market in, taker TP (today)                        trades   539 won 38.4% net -0.073% per trade (-0.073R), -0.073% per signal; t -1.15; months+ 36%
+  (b) limit in, taker TP                                 trades   518 won 35.3% net -0.066% per trade (-0.066R), -0.063% per signal; t -0.91; months+ 36%
+  (c) market in, maker TP (fills only through +1 tick)   trades   539 won 38.0% net -0.061% per trade (-0.061R), -0.061% per signal; t -0.95; months+ 43%
+  (d) limit in, maker TP                                 trades   518 won 34.9% net -0.057% per trade (-0.057R), -0.055% per signal; t -0.74; months+ 43%
+
+random early grinds: 2,000 signals; limit filled 95%; won 34.3% of all (market entry) vs 32.3% of filled (adverse selection -2.0 points); winners missed because the limit never filled: 64
+  (a) market in, taker TP (today)                        trades  2000 won 34.3% net -0.197% per trade (-0.197R), -0.197% per signal; t -6.01; months+ 7%
+  (b) limit in, taker TP                                 trades  1898 won 32.3% net -0.157% per trade (-0.157R), -0.149% per signal; t -4.85; months+ 7%
+  (c) market in, maker TP (fills only through +1 tick)   trades  2000 won 34.1% net -0.184% per trade (-0.184R), -0.184% per signal; t -5.58; months+ 7%
+  (d) limit in, maker TP                                 trades  1898 won 32.2% net -0.142% per trade (-0.142R), -0.135% per signal; t -4.44; months+ 14%
+
+Pass bar (family of 6: variants b-d x 2 samples, R = the 1% stop):
+  all-day steady (R3) (b) limit in, taker TP: not passed: mean -0.066 < +0.1; corrected t -inf < 3.0; months positive 36% < 60%
+  all-day steady (R3) (c) market in, maker TP (fills only through +1 tick): not passed: mean -0.061 < +0.1; corrected t -inf < 3.0; months positive 43% < 60%
+  all-day steady (R3) (d) limit in, maker TP: not passed: mean -0.057 < +0.1; corrected t -inf < 3.0; months positive 43% < 60%
+  random early grinds (b) limit in, taker TP: not passed: mean -0.157 < +0.1; corrected t -inf < 3.0; months positive 7% < 60%
+  random early grinds (c) market in, maker TP (fills only through +1 tick): not passed: mean -0.184 < +0.1; corrected t -inf < 3.0; months positive 7% < 60%
+  random early grinds (d) limit in, maker TP: not passed: mean -0.142 < +0.1; corrected t -inf < 3.0; months positive 14% < 60%
+
+Best section 14 sweep variant (short after a 24h-high sweep, market entry, stop 1 ATR beyond the wick, 3R, 48h):
+  taker TP                     n 33,485 won 36.5% +0.019R t +2.86 months+ 50%
+  maker TP (through +0.01%)    n 33,485 won 36.5% +0.023R t +2.97 months+ 57%
