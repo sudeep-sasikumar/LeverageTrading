@@ -32,7 +32,7 @@ from lts.db import DB
 from lts.fees import fees
 from lts.levels import between, major_levels
 
-out = Tee("parity.txt")
+out = print                      # the results file is opened only when run as a script (not on import)
 cfg = Config()
 gs = cfg.grindsignal
 PL = gs.plans[gs.primary]
@@ -188,6 +188,7 @@ def report(lab: str, d: pd.DataFrame) -> dict:
 
 
 if __name__ == "__main__":
+    out = Tee("parity.txt")
     t_start = time.time()
     out(f"P1 live-parity replay - run {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC")
     ldb = DB(LOCAL_DB)
